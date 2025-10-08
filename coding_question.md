@@ -3,6 +3,34 @@
 
 The data is trunctuated from `walk1_subject1.bvh` starting from line 424 to 494. It's viewd as the **stop motion**. The original file consists 7k+ frames. Other examples are in `/mocap` folder. 
 
+# Data formart
+- Lafan1: 
+    - `.bvh` file
+    - Tree structure
+    - Robot Pose (69D)
+        - base `[x, y, z, Rz, Ry, Rx]` (6D)
+        - joint `[Rz, Ry, Rx]` (3D * **21**) <font color="red">**(Unitree G1: 29 DOF)**</font>.
+
+- [Omniretarget:](https://huggingface.co/datasets/omniretarget/OmniRetarget_Dataset#data-format)
+    - `.npy` file
+    - Robot Pose (36D)
+        - Floating Base [qw, qx, qy, qz, x, y, z] (7D)
+        - Joint Positions (29D) (**order?**)
+
+- GMR
+    - dictionary: 
+    `{
+        "Hips": (position, orientation),
+        "Spine": (position, orientation),
+        ...
+    }`
+    - Using official scripts [`extract.py`](https://github.com/ubisoft/ubisoft-laforge-animation-dataset/blob/master/lafan1/extract.py) to preprocess to get **quaternion, postion and parents**. 
+    - [Forward kinematics](https://github.com/YanjieZe/GMR/blob/master/general_motion_retargeting/utils/lafan1.py#L18) deals with tree stucture and offset to get a global pose and orientation.
+
+- [An unofficial retargeted dataset](https://huggingface.co/datasets/lvhaidong/LAFAN1_Retargeting_Dataset)
+    - The order of the joints is defined.
+# Reference
+
 | Project / Repository                                                                                                      | Purpose / Use                                                          | Key Scripts / Usage Notes                                                                                       |
 | ------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
 | **[ubisoft/ubisoft-laforge-animation-dataset](https://github.com/ubisoft/ubisoft-laforge-animation-dataset)**             | Official LAFAN1 dataset + example preprocessing and evaluation scripts | Includes `evaluate.py`, `evaluate_test.py` for decompression, BVH format validation, and statistical evaluation |
