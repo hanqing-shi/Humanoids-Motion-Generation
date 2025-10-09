@@ -24,6 +24,7 @@ The data is trunctuated from `walk1_subject1.bvh` starting from line 424 to 494.
         "Spine": (position, orientation),
         ...
     }`
+    - Robot Pose (36D) is the same with above.
     - Using official scripts [`extract.py`](https://github.com/ubisoft/ubisoft-laforge-animation-dataset/blob/master/lafan1/extract.py) to preprocess to get **quaternion, postion and parents**. 
     - [Forward kinematics](https://github.com/YanjieZe/GMR/blob/master/general_motion_retargeting/utils/lafan1.py#L18) deals with tree stucture and offset to get a global pose and orientation.
 
