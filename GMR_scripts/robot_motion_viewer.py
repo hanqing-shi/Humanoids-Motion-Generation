@@ -68,7 +68,7 @@ class RobotMotionViewer:
         self.rate_limiter = RateLimiter(frequency=self.motion_fps, warn=False)
         self.camera_follow = camera_follow
         self.record_video = record_video
-
+        self.current_frame = 0
 
         self.viewer = mjv.launch_passive(
             model=self.model,
@@ -132,7 +132,7 @@ class RobotMotionViewer:
         self.data.qpos[7:] = dof_pos
         
         mj.mj_forward(self.model, self.data)
-        
+
         if follow_camera:
             self.viewer.cam.lookat = self.data.xpos[self.model.body(self.robot_base).id]
             self.viewer.cam.distance = self.viewer_cam_distance
@@ -164,6 +164,13 @@ class RobotMotionViewer:
             img = self.renderer.render()
             self.mp4_writer.append_data(img)
     
+    def draw_text(self, text, pos=(10, 30), size=20, color=(1, 1, 0, 1)):
+        if hasattr(self.viewer, 'user_texts'):
+            self.viewer.user_texts[0].text = text
+            self.viewer.user_texts[0].pos = pos
+            self.viewer.user_texts[0].size = size
+            self.viewer.user_texts[0].color = color
+
     def close(self):
         self.viewer.close()
         time.sleep(0.5)
