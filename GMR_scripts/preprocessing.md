@@ -48,7 +48,7 @@ Tips:
     - Note: **0 - around 70 frame** is the transition starting from initial pose. I would say clipping it.
 - **Refined clipping**: 
     - Divide each segment into individual actions like walk, turn, stop.
-    - We can **take down frame and corresponding action information** without making the file. If you guys have additional time I would recommend doing it.
+    - In order to save time, We can **take down frame and corresponding action information** without making the file. If you guys have additional time I would recommend producing the refined files. nameing: coarse clipping + 'action' i :`jumps1_subject1_seg1_turn1.bvh`
 ## Velocity label
 My understanding: For $i$ th frames, take $x,y,z$ component of the root joint(Hip), namely the first three elements. For example, the global velocity of $x$ component in $i$ th frame: 
 
