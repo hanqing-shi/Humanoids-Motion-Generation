@@ -50,10 +50,18 @@ Tips:
     - Divide each segment into individual actions like walk, turn, stop.
     - In order to save time, We can **take down frame and corresponding action information** without making the file. If you guys have additional time I would recommend producing the refined files. nameing: coarse clipping + 'action' i :`jumps1_subject1_seg1_turn1.bvh`
 ## Velocity label
-My understanding: For $i$ th frames, take $x,y,z$ component of the root joint(Hip), namely the first three elements. For example, the global velocity of $x$ component in $i$ th frame: 
+My understanding: 
+
+For Linear velocity: In $i$ th frames, take $x,y,z$ component of the root joint(Hip), namely the first three elements. For example, the global velocity of $x$ component in $i$ th frame: 
 
 $$V_{xi} = \frac{x_{i+1}-x_{i}}{t}$$
 Where $t$ is the time for each frame, specified in the bvh file.
 The results should be **$(N-1)\times3 $** tensor. For the last velocity, we can pad $0$ velocity.
+
+<font color="red">**IMPORTANT: calculating in bvh file results in local velocity because the position is expressed in local frames**</font>. That's why you want to refer forward kinematics in [GMR](https://github.com/YanjieZe/GMR/blob/master/general_motion_retargeting/utils/lafan_vendor/utils.py#L88)
+
+For Angular Velocity, we can calculate relative resolute between two frames. And then transform quaternion into angle in three components. That's what is called **twist**.
+
+Tutorial:https://modernrobotics.northwestern.edu/nu-gm-book-resource/3-3-2-twists-part-1-of-2/#department
 
 **A plot script** is also prefered to see if we need to smooth the data.
