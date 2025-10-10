@@ -1,6 +1,6 @@
 # Data preprocessing
 ## Data segments
-- **We use 21 files, 7 for each person**:
+- **We use 21 files**:
     - walking * 12 
     - run * 4
     - sprint * 2
@@ -8,7 +8,7 @@
 - Walking shoud be the hard one. So the division is:
     - Hanqing: walk1_subject1 - walk2_subject4
     - Jak: walk3_subject1 - walk4_subject1
-    - Sangwoo: run and jump
+    - Sangwoo: run, jump and sprint
 
 - Potential use:
     - aiming * 5(only with legs)
