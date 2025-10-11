@@ -88,11 +88,12 @@ def process_bvh_file(path):
     return df
 
 
-def process_folder(folder="."):
+def process_folder(folder=".",out_folder='.'):
     for file in os.listdir(folder):
         if file.lower().endswith(".bvh"):
             in_path = os.path.join(folder, file)
-            out_path = os.path.splitext(in_path)[0] + ".csv"
+            out_path = os.path.join(out_folder, file)
+            out_path = os.path.splitext(out_path)[0] + ".csv"
             try:
                 df = process_bvh_file(in_path)
                 df.to_csv(out_path, index=False)
@@ -102,4 +103,4 @@ def process_folder(folder="."):
 
 
 if __name__ == "__main__":
-    process_folder(".")
+    process_folder("./Lafan1_clipped","./Lafan1_clipped_label")
