@@ -18,8 +18,29 @@ def draw_frame(
     joint_name=None,
     orientation_correction=R.from_euler("xyz", [0, 0, 0]),
     pos_offset=np.array([0, 0, 0]),
+    vector = None,
 ):
     rgba_list = [[1, 0, 0, 1], [0, 1, 0, 1], [0, 0, 1, 1]]
+
+    ## draw vector
+    vector = [10,20,0]
+    if vector is not None:
+        mj.mjv_initGeom(
+            geom,
+            type=mj.mjtGeom.mjGEOM_ARROW,
+            size=[0.01, 0.01, 0.01],
+            pos=pos + pos_offset,
+            mat=mat.flatten(),
+            rgba=[1,1,0,1]
+        )
+        mj.mjv_connector(
+            v.user_scn.geoms[v.user_scn.ngeom],
+            type=mj.mjtGeom.mjGEOM_ARROW,
+            width=0.1,
+            from_=pos + pos_offset,
+            to=pos + pos_offset + vector
+        )
+
     for i in range(3):
         geom = v.user_scn.geoms[v.user_scn.ngeom]
         mj.mjv_initGeom(

@@ -65,3 +65,6 @@ For Angular Velocity, we can calculate relative resolute between two frames. And
 Tutorial:https://modernrobotics.northwestern.edu/nu-gm-book-resource/3-3-2-twists-part-1-of-2/#department
 
 **A plot script** is also prefered to see if we need to smooth the data.
+
+## Mirror function
+[PPO](https://github.com/UBCMOCCA/SymmetricRL/blob/master/common/envs_utils.py#L661)
