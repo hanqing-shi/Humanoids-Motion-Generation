@@ -14,7 +14,7 @@
 1. **@all**: define start and end frame for segments as **@sangwoo** suggested.
 2. **@all**: Apply FK to get body positions/orientations, and then calculate velocities. Creating seperate branches may be a good idea in that case. The complete state set consists of:
 
-    | Numbers| State Variables    | Dimention |
+    | Numbers| State Variables    | Dimension |
     |:--:| :---------:| :----------:|
     |1| Root positions      | 3       |
     |2| Root orientations   | 3/4     |
@@ -31,3 +31,7 @@
 
 ## Dataloader
 - I will look at this as well to provide more details. We could start by state represtantation: 1+2+3+5+6 which is the same as beyondmimic.
+
+## Experiments
+- Hands movement: Set some joint angles to fixed values could be a bad choice. **It makes the whole move more weird and cause collision.** But even in the original regtarted data there is collision.
+![collision](/img/collision.png "collision in original retarget")
