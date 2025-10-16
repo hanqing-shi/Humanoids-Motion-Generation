@@ -42,8 +42,13 @@
             
     These lines in #70 in `rerun_visualize.py` define R = 3 by 3 rotation matrix and p = 3 by 1 translation vector. They define joint frame and body frame and calculate joint to body transform. **We may want to find transform for the `root_joint` first.** and calculate everything relative to that. It should be more stable compared to the hip joint in bvh.
 - Built the initial dataset and mirror transform in `/model`.
-    - dataset: convert csv data and label to tensor, sample data of length `seq_len`.
-    - mirror transform: swap left and right, take the negative of waist roll angle (to be checked)
+    - `dataset.py`: convert csv data and label to tensor, sample data of length `seq_len`.
+    - `transform.py`: define mirror transfrom to swap left and right, take the negative of waist roll angle (to be checked)
+- Built two CVAE models in `/model/models.py`
+    - `TrajCVAE` uses gated recurrent unit (GRU) to input and output trajectories.
+    - `PoseCVAE` encodes global condition and decodes based on condition in each frame. 
+
 - Todo: 
     1. add `RandomsWeightedSampler` to dataloader to ensure every segment has the same probability to be loaded.
     2. fill the exact names of column.
+    3. write train.py
