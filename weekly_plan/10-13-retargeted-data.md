@@ -33,6 +33,7 @@
 - I will look at this as well to provide more details. We could start by state represtantation: 1+2+3+5+6 which is the same as beyondmimic.
 
 ## Experiments
+### Hanqing: 
 - Hands movement: Set some joint angles to fixed values could be a bad choice. **It makes the whole move more weird and cause collision.** Potentially we can restrict the `elbow` and `shoulder_roll` joints. But even in the original regtarted data there is collision: 
 ![collision](/img/collision.png "collision in original retarget")
 
@@ -40,3 +41,9 @@
             joint_tf = self.robot.data.oMi[parent_joint_id]`
             
     These lines in #70 in `rerun_visualize.py` define R = 3 by 3 rotation matrix and p = 3 by 1 translation vector. They define joint frame and body frame and calculate joint to body transform. **We may want to find transform for the `root_joint` first.** and calculate everything relative to that. It should be more stable compared to the hip joint in bvh.
+- Built the initial dataset and mirror transform in `/model`.
+    - dataset: convert csv data and label to tensor, sample data of length `seq_len`.
+    - mirror transform: swap left and right, take the negative of waist roll angle (to be checked)
+- Todo: 
+    1. add `RandomsWeightedSampler` to dataloader to ensure every segment has the same probability to be loaded.
+    2. fill the exact names of column.
