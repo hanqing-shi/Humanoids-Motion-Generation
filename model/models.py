@@ -150,7 +150,7 @@ class TrajCVAE(nn.Module):
     def decode(self, cond_seq, z, x0):
         return self.decoder(cond_seq, z, x0)
 
-    def forward(self, cond_seq, x_future, beta=1.0):
+    def forward(self, x_future, cond_seq, beta=1.0):
         """
         Training forward pass.
         Args:
