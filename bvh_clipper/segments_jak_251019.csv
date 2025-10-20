@@ -1,0 +1,20 @@
+﻿file,start,end,out,description,use?
+walk3_subject1.bvh,1,2104,walk3_subject1_seg1.bvh,walk,y
+walk3_subject1.bvh,2105,3012,walk3_subject1_seg2.bvh,zombie,?
+walk3_subject1.bvh,3013,4210,walk3_subject1_seg3.bvh,zombie+bending over,n
+walk3_subject1.bvh,4211,5447,walk3_subject1_seg4.bvh,hands on hips leg kick walking,n
+walk3_subject1.bvh,5448,6713,walk3_subject1_seg5.bvh,sit and stand,n
+walk3_subject1.bvh,6714,7399,walk3_subject1_seg6.bvh,walk,y
+walk3_subject2.bvh,1,722,walk3_subject2_seg1.bvh,stand and sway,n
+walk3_subject2.bvh,723,7399,walk3_subject2_seg2.bvh,"walk, walk w hand on head, walk backwards, run",y
+walk3_subject3.bvh,1,1800,walk3_subject3_seg1.bvh,limbing,n
+walk3_subject3.bvh,1801,7399,walk3_subject3_seg2.bvh,crawling,n
+walk3_subject4.bvh,1,599,walk3_subject4_seg1.bvh,walk,y
+walk3_subject4.bvh,600,799,walk3_subject4_seg2.bvh,bend over,n
+walk3_subject4.bvh,800,3490,walk3_subject4_seg3.bvh,walk,y
+walk3_subject4.bvh,3491,3578,walk3_subject4_seg4.bvh,bend over,n
+walk3_subject4.bvh,3579,5800,walk3_subject4_seg5.bvh,walk,y
+walk3_subject4.bvh,5801,6800,walk3_subject4_seg6.bvh,sit and stand,n
+walk3_subject4.bvh,6801,7399,walk3_subject4_seg7.bvh,walk,y
+walk3_subject5.bvh,1,7399,walk3_subject5.bvh,crouch walk,?
+walk4_subject1.bvh,1,7399,walk4_subject1.bvh,crouch walk,?
