@@ -3,147 +3,151 @@ import numpy as np
 import pandas as pd
 import pinocchio as pin
 from pathlib import Path
+from scipy.spatial.transform import Rotation as R
 
-def row_to_q(row: np.ndarray) -> np.ndarray:
-    """CSV row [xyz, wxyz, joints...] -> Pinocchio q (free-flyer + joints)."""
-    xyz, wxyz = row[:3], row[3:7]
-    wxyz = wxyz / np.linalg.norm(wxyz)  # safety
-    return np.r_[xyz, wxyz, row[7:]]
+def linear_velocities_from_pos_quat(positions: np.ndarray, q_wxyz: np.ndarray, dt: float):
+    T = positions.shape[0]
+    v_world = np.zeros_like(positions)
 
-def get_body_frame_ids(model: pin.Model) -> list[int]:
-    """Return all BODY frame ids (exclude visuals/sensors)."""
-    return [fid for fid, f in enumerate(model.frames) if f.type == pin.FrameType.BODY]
+    if T>=3:
+        v_world[1:-1] = (positions[2:] - positions[:-2]) / (2.0 * dt) # central difference
+        v_world[0] = (positions[1] - positions[0]) / dt
+        v_world[-1] = (positions[-1] - positions[-2]) / dt
+    elif T==2:
+        v_world[0]  = (positions[1] - positions[0]) / dt
+        v_world[1]  = v_world[0]
+    else:
+        pass
+    q_xyzw = np.column_stack([q_wxyz[:,1], q_wxyz[:,2], q_wxyz[:,3], q_wxyz[:,0]]) # for scipy indexing
+    Rot = R.from_quat(q_xyzw)
+    R_all = Rot.as_matrix()
+    v_local = np.einsum('tij,tj->ti', np.transpose(R_all, (0,2,1)), v_world)
+    return v_world, v_local
 
-def find_root_body_frame_id(model: pin.Model, body_fids: list[int]) -> int:
-    """A BODY frame attached to the free-flyer joint (id=1)."""
-    for fid in body_fids:
-        if model.frames[fid].parent == 1:
-            return fid
-    return body_fids[0]
+def angular_velocity_from_quat(q_wxyz: np.ndarray, dt: float):
+    T = q_wxyz.shape[0]
+    omega_world = np.zeros((T, 3))
+    q = q_wxyz.copy()
+    for t in range(1, T):
+        if np.dot(q[t], q[t-1]) < 0.0:
+            q[t] = -q[t]
+    q_xyzw = np.column_stack([q[:,1], q[:,2], q[:,3], q[:,0]]) # for scipy indexing
+    Rot = R.from_quat(q_xyzw)
 
-def headers_for_clip(model: pin.Model, body_fids: list[int], J: int) -> list[str]:
-    """Column headers in the order we concatenate below."""
-    cols = []
-    # 1 Root positions
-    cols += ["root_x","root_y","root_z"]
-    # 2 Root orientations (quat wxyz)
-    cols += ["root_qw","root_qx","root_qy","root_qz"]
-    # 3 Root linear vel (LOCAL)
-    cols += ["root_vx_local","root_vy_local","root_vz_local"]
-    # 4 Root angular vel (LOCAL)
-    cols += ["root_wx_local","root_wy_local","root_wz_local"]
-
-    def add_body_cols(prefix, dim):
-        for fid in body_fids:
-            name = model.frames[fid].name
-            for d in range(dim):
-                cols.append(f"{name}_{prefix}{d}")
-
-    # 5 Body positions (world) -> 3*N
-    add_body_cols("pos_", 3)
-    # 6 Body orientations (quat xyzw, world) -> 4*N
-    for fid in body_fids:
-        name = model.frames[fid].name
-        cols += [f"{name}_quat_x", f"{name}_quat_y", f"{name}_quat_z", f"{name}_quat_w"]
-    # 7 Body linear vel (LOCAL) -> 3*N
-    add_body_cols("v_local_", 3)
-    # 8 Body angular vel (LOCAL) -> 3*N
-    add_body_cols("w_local_", 3)
-    # 9 Joint angles (URDF order, radians)
-    for j in range(J):
-        cols.append(f"joint_{j}_pos")
-    # 10 Joint velocities
-    for j in range(J):
-        cols.append(f"joint_{j}_vel")
-
-    return cols
+    if T >= 3:
+        delta_fwd  = (Rot[2:]   * Rot[1:-1].inv()).as_rotvec() / dt
+        delta_back = (Rot[1:-1] * Rot[0:-2].inv()).as_rotvec()  / dt
+        omega_world[1:-1] = 0.5 * (delta_fwd + delta_back)
+        omega_world[0]    = (Rot[1]  * Rot[0].inv()).as_rotvec()   / dt
+        omega_world[-1]   = (Rot[-1] * Rot[-2].inv()).as_rotvec()  / dt
+    elif T == 2:
+        omega_world[0]  = (Rot[1] * Rot[0].inv()).as_rotvec() / dt
+        omega_world[1]  = omega_world[0]
+    R_all = Rot.as_matrix()
+    omega_local = np.einsum('tij,tj->ti', np.transpose(R_all, (0,2,1)), omega_world)
+    return omega_world, omega_local
 
 def process_csv(csv_path: str, urdf_path: str, dt: float, out_dir: str):
+    file = pd.read_csv(csv_path, header=None)
+    df = file.values
+    T = df.shape[0]
+    '''position and orientation'''
+    positions = df[:,0:3]
+    q_wxyz = df[:, 3:7]
+    '''velocities'''
+    v_world, v_local = linear_velocities_from_pos_quat(positions, q_wxyz, dt)
+    omega_world, omega_local = angular_velocity_from_quat(q_wxyz, dt)
+
+    '''pinocchio forward kinematics'''
     model = pin.buildModelFromUrdf(urdf_path, pin.JointModelFreeFlyer())
     data  = model.createData()
+    body_frame_ids = [fid for fid,f in enumerate(model.frames) if f.type == pin.FrameType.BODY]
+    root_body_fid = next((fid for fid in body_frame_ids if model.frames[fid].parentJoint == 1), body_frame_ids[0])
 
-    Qraw = np.loadtxt(csv_path, delimiter=',')         # (T, 7+J)
-    if Qraw.ndim == 1:
-        Qraw = Qraw[None, :]
-    T = Qraw.shape[0]
-    J = Qraw.shape[1] - 7
-
-    Q = np.vstack([row_to_q(r) for r in Qraw])         # (T, nq)
-
-    V = np.zeros((T, model.nv))
-    for t in range(T-1):
-        V[t] = pin.difference(model, Q[t], Q[t+1]) / dt
-    V[-1] = V[-2] if T > 1 else V[-1]
-
-    body_fids = get_body_frame_ids(model)
-    root_body_fid = find_root_body_frame_id(model, body_fids)
-    print('root_body_fid:',root_body_fid)
-    N = len(body_fids)
-
-    root_positions            = np.zeros((T, 3))
-    root_orient_wxyz          = np.zeros((T, 4))
-    root_linear_vel_local     = np.zeros((T, 3))
-    root_angular_vel_local    = np.zeros((T, 3))
-
-    body_positions_world      = np.zeros((T, N, 3))
-    body_orient_xyzw_world    = np.zeros((T, N, 4))
-    body_linear_vel_local     = np.zeros((T, N, 3))
-    body_angular_vel_local    = np.zeros((T, N, 3))
-
-    joint_pos = Qraw[:, 7:]               # (T, J)
-    joint_vel = V[:, 6:]                  # skip free-flyer nv=6
+    '''body pos'''
+    body_pos_local = []
+    body_pos_world = []
 
     for t in range(T):
-        q, v = Q[t], V[t]
-        pin.forwardKinematics(model, data, q, v)
+        q = np.zeros(model.nq)
+        q[:3] = df[t,0:3] #xyz
+        q[3:7] = df[t, 3:7] #wxyz
+        q[7:] = df[t,7:] # joint angles
+
+        pin.forwardKinematics(model, data, q)
         pin.updateFramePlacements(model, data)
+        M_root_inv = data.oMf[root_body_fid].inverse()
 
-        # 1–2: Root pose (global/world) straight from CSV
-        root_positions[t]   = Qraw[t, :3]
-        root_orient_wxyz[t] = Qraw[t, 3:7]
+        body_positions_global = []
+        body_positions_local = []
 
-        # 3–4: Root velocities in LOCAL frame of the root body
-        v_root = pin.getFrameVelocity(model, data, root_body_fid, pin.ReferenceFrame.LOCAL)
-        root_linear_vel_local[t]  = v_root.linear
-        root_angular_vel_local[t] = v_root.angular
+        for fid in body_frame_ids:
+            M_world = data.oMf[fid]
+            body_positions_global.append(M_world.translation)
+            M_local = M_root_inv * M_world
+            body_positions_local.append(M_local.translation)   
 
-        # 5–8: Body poses (WORLD) & velocities (LOCAL)
-        for k, fid in enumerate(body_fids):
-            M = data.oMf[fid]                                    # world pose
-            body_positions_world[t, k] = M.translation
-            # quaternion (Pin: coeffs() -> xyzw)
-            body_orient_xyzw_world[t, k] = pin.Quaternion(M.rotation).coeffs()
+        body_pos_world.append(np.concatenate(body_positions_global))
+        body_pos_local.append(np.concatenate(body_positions_local))
 
-            v_local = pin.getFrameVelocity(model, data, fid, pin.ReferenceFrame.LOCAL)
-            body_linear_vel_local[t, k]  = v_local.linear
-            body_angular_vel_local[t, k] = v_local.angular
+    body_pos_world = np.vstack(body_pos_world)
+    body_pos_local = np.vstack(body_pos_local)
 
-    # Flatten groups 5–8 and concatenate all groups horizontally
-    features = np.hstack([
-        root_positions,                      # 3
-        root_orient_wxyz,                    # 4
-        root_linear_vel_local,               # 3
-        root_angular_vel_local,              # 3
-        body_positions_world.reshape(T, -1),     # 3N
-        body_orient_xyzw_world.reshape(T, -1),   # 4N
-        body_linear_vel_local.reshape(T, -1),    # 3N
-        body_angular_vel_local.reshape(T, -1),   # 3N
-        joint_pos,                           # J
-        joint_vel                            # J
-    ])
+    '''body pos relative to root'''
+    #body_pos_rel_root = body_pos_world - np.repeat(positions, body_pos_world.shape[1]//3, axis=1)
 
-    # Column headers
-    headers = headers_for_clip(model, body_fids, J)
+    '''body v world, local, and relative to root'''
+    '''
+    body_v_world = np.zeros_like(body_pos_world)
+    body_v_local = np.zeros_like(body_pos_local)
+    if T >= 3:
+        body_v_world[1:-1] = (body_pos_world[2:] - body_pos_world[:-2]) / (2.0 * dt)
+        body_v_world[0] = (body_pos_world[1] - body_pos_world[0]) / dt
+        body_v_world[-1] = (body_pos_world[-1] - body_pos_world[-2]) / dt
+    elif T == 2:
+        body_v_world[0] = (body_pos_world[1] - body_pos_world[0]) / dt
+        body_v_world[1] = body_v_world[0]
+    N = body_pos_world.shape[1]//3
+    pos_rep = np.repeat(positions, N, axis=1)
+    vel_rep = np.repeat(v_world, N, axis=1)
+    body_pos_rel_root = body_pos_world - pos_rep
+    body_v_rel_root = body_v_world - vel_rep
+    '''
+    body_v_world = np.zeros_like(body_pos_world)
+    if T>=3:
+        body_v_world[1:-1] = (body_pos_world[2:] - body_pos_world[:-2]) / (2.0 * dt)
+        body_v_world[0]    = (body_pos_world[1] - body_pos_world[0]) / dt
+        body_v_world[-1]   = (body_pos_world[-1] - body_pos_world[-2]) / dt
+    elif T == 2:
+        body_v_world[0] = (body_pos_world[1] - body_pos_world[0]) / dt
+        body_v_world[1] = body_v_world[0]
+    
+    q_xyzw = np.column_stack([q_wxyz[:,1], q_wxyz[:,2], q_wxyz[:,3], q_wxyz[:,0]])
+    Rot = R.from_quat(q_xyzw).as_matrix()
 
-    # Save per-clip CSV
-    clip = os.path.splitext(os.path.basename(csv_path))[0]
-    out_csv = os.path.join(out_dir, f"{clip}_features.csv")
-    Path(out_dir).mkdir(parents=True, exist_ok=True)
+    N = body_pos_world.shape[1] // 3
 
-    # Use pandas so headers are included
-    df = pd.DataFrame(features, columns=headers)
-    df.to_csv(out_csv, index=False)
-    print(f"✅ {clip}: saved {features.shape} → {out_csv}")
+    body_pos_local = np.empty_like(body_pos_world)
+    body_v_local   = np.empty_like(body_v_world)
+
+    for t in range(T):
+        Rt = Rot[t].T                      # world->root (local) rotation
+        Pw = body_pos_world[t].reshape(N,3)
+        Vw = body_v_world[t].reshape(N,3)
+        Pl = (Rt @ Pw.T).T                 # (N,3)
+        Vl = (Rt @ Vw.T).T                 # (N,3)
+        body_pos_local[t] = Pl.reshape(-1)
+        body_v_local[t]   = Vl.reshape(-1)
+
+
+    #body_v_world, body_v_local = linear_velocities_from_pos_quat(body_pos_world, q_wxyz, dt)
+
+    state = np.hstack((positions, q_wxyz, v_local, omega_local, body_pos_local, body_v_local))
+    os.makedirs(out_dir, exist_ok=True)
+    base = os.path.splitext(os.path.basename(csv_path))[0]
+    out_path = os.path.join(out_dir, f"{base}_training.csv")
+    np.savetxt(out_path, state, delimiter=",")
+    print(f"✅ saved {base} → {out_path}")
 
 def batch_process(in_dir: str, urdf: str, out_dir: str, dt: float = 1/30):
     csvs = sorted(glob.glob(os.path.join(in_dir, "*.csv")))
@@ -151,7 +155,10 @@ def batch_process(in_dir: str, urdf: str, out_dir: str, dt: float = 1/30):
         print(f"(no CSVs found in {in_dir})")
         return
     for csv_path in csvs:
-        process_csv(csv_path, urdf, dt, out_dir)
+        try:
+            process_csv(csv_path, urdf, dt, out_dir)
+        except Exception as e:
+            print(f"❌ FAILED: {csv_path}\n   → {e}")
 
 if __name__ == "__main__":
     import argparse
