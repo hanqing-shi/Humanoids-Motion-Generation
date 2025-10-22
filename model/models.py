@@ -76,10 +76,11 @@ class GRUDecoder(nn.Module):
         B, T_pred, _ = cond_seq.shape
         # compute global context for init hidden
         # TODO: how to encode condition
-        self.cond_enc = GRUEncoder(T_pred, cond_dim)
-        cond_vec = self.cond_enc(cond_seq)
+        # self.cond_enc = GRUEncoder(T_pred, cond_dim)
+        # cond_vec = self.cond_enc(cond_seq)
 
-        h0 = self.init_mlp(torch.cat([z, cond_vec], dim=-1)).unsqueeze(0)
+        cond_vec = cond_seq.mean(dim=1)  # (B, D_c)   # simple average pooling as condition summary
+        h0 = self.init_mlp(torch.cat([cond_vec, z], dim=-1)).unsqueeze(0)  # (1,B,H)
 
         outputs = []
         x_prev = x0  # start from current state
@@ -118,15 +119,10 @@ class TrajCVAE(nn.Module):
         super().__init__()
         # Encoders
         # TODO: we don't need to use GRU to encode condition
-        self.cond_enc = GRUEncoder(cond_dim, cond_hidden, num_layers, bidir=bidir_cond, dropout=dropout)
-        self.fut_enc  = GRUEncoder(traj_dim, fut_hidden,  num_layers, bidir=bidir_fut,  dropout=dropout)
-
-        cond_vec_dim = cond_hidden * (2 if bidir_cond else 1)
-        fut_vec_dim  = fut_hidden  * (2 if bidir_fut  else 1)
-        enc_cat_dim  = cond_vec_dim + fut_vec_dim
-
-        self.to_mu     = nn.Linear(enc_cat_dim, z_dim)
-        self.to_logvar = nn.Linear(enc_cat_dim, z_dim)
+        # self.cond_enc = GRUEncoder(cond_dim, cond_hidden, num_layers, bidir=bidir_cond, dropout=dropout)
+        self.fut_enc  = GRUEncoder(traj_dim + cond_dim, fut_hidden,  num_layers, bidir=bidir_fut,  dropout=dropout)
+        self.to_mu = nn.Linear(fut_hidden, z_dim)
+        self.to_logvar = nn.Linear(fut_hidden, z_dim)
 
         # Decoder now takes full condition sequence
         self.decoder = GRUDecoder(
@@ -140,11 +136,9 @@ class TrajCVAE(nn.Module):
         x_future: (B, T_pred, D_x)
         cond_seq: (B, T_cond, D_c)
         """
-        c_vec = self.cond_enc(cond_seq)
-        f_vec = self.fut_enc(x_future)
-        h = torch.cat([c_vec, f_vec], dim=-1)
-        mu     = self.to_mu(h)
-        logvar = self.to_logvar(h)
+        enc_in = torch.cat([x_future, cond_seq], dim=-1)  # (B,T,D_x+D_c)
+        f_vec = self.fut_enc(enc_in)
+        mu, logvar = self.to_mu(f_vec), self.to_logvar(f_vec)
         return mu, logvar
 
     def decode(self, cond_seq, z, x0):
@@ -166,21 +160,45 @@ class TrajCVAE(nn.Module):
         y_hat = self.decode(cond_seq, z, x0)
 
         recon = F.mse_loss(y_hat, x_future, reduction="none").mean(dim=(1, 2))
-        kl = kl_divergence(mu, logvar)
+        kl = kl_divergence(mu, logvar) / mu.size(-1)
         loss = (recon + beta * kl).mean()
         return y_hat, loss, {"recon": recon.mean().item(), "kl": kl.mean().item()}
 
     @torch.no_grad()
-    def sample(self, cond_seq, x0, T_pred, n_samples=1):
+    def sample(self, cond_seq, x0, T_pred=None, n_samples=1):
+        """Generate trajectories from the prior.
+
+        Args:
+            cond_seq (Tensor): Condition sequence of shape ``(B, T, D_c)``.
+            x0 (Tensor): Initial pose/state of shape ``(B, D_x)``.
+            T_pred (int, optional): Length of the trajectory to generate. If
+                ``None`` it defaults to the length of ``cond_seq``.
+            n_samples (int): Number of samples to draw per input in the batch.
+
+        Returns:
+            Tensor: Samples with shape ``(B, n_samples, T, D_x)``.
         """
-        Inference: generate trajectory given condition and initial state.
-        """
-        B = cond_seq.size(0)
-        cond_seq = cond_seq.repeat_interleave(n_samples, dim=0)
-        z = torch.randn(cond_seq.size(0), self.to_mu.out_features, device=cond_seq.device)
-        x0 = x0.repeat_interleave(n_samples, dim=0)
-        y_hat = self.decode(cond_seq, z, x0)
+
+        B, T, _ = cond_seq.shape
+        if T_pred is None:
+            T_pred = T
+
+        device = cond_seq.device
+        z_dim = self.to_mu.out_features
+
+        # Repeat condition and initial state for each requested sample.
+        cond_seq_rep = cond_seq.unsqueeze(1).expand(B, n_samples, T, -1)
+        cond_seq_rep = cond_seq_rep.reshape(B * n_samples, T, -1)
+
+        x0_rep = x0.unsqueeze(1).expand(B, n_samples, -1)
+        x0_rep = x0_rep.reshape(B * n_samples, -1)
+
+        # Sample from the standard normal prior.
+        z = torch.randn(B * n_samples, z_dim, device=device)
+
+        y_hat = self.decode(cond_seq_rep[:, :T_pred, :], z, x0_rep)
         return y_hat.view(B, n_samples, T_pred, -1)
+
 
 class PoseCVAE(nn.Module):
     def __init__(

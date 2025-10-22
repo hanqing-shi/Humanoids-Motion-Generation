@@ -52,3 +52,7 @@
     1. add `RandomsWeightedSampler` to dataloader to ensure every segment has the same probability to be loaded.
     2. fill the exact names of column.
     3. write train.py
+
+### 10.22
+Got the initial result. The body seems to be torn apart, which means the generated body positions couldn't make a whole body.
+![initial_result](/img/initial_result.png "collision in original retarget")

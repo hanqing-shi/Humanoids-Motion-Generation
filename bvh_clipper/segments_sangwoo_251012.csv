@@ -1,8 +1,0 @@
-file,start,end,out
-run1_subject2.bvh,10,300,run1_subject2_seg1
-run1_subject2.bvh,20,400,run1_subject2_seg2
-run1_subject5.bvh,10,300,run1_subject5_seg1
-run2_subject1.bvh,10,300,run2_subject1_seg1
-run2_subject4.bvh,10,300,run2_subject4_seg1
-sprint1_subject2.bvh,10,300,sprint1_subject2_seg1
-sprint1_subject4.bvh,10,300,sprint1_subject4_seg1
