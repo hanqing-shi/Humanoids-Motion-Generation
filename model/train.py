@@ -69,7 +69,8 @@ def train(args):
             optimizer.zero_grad()
 
             # Forward pass
-            pred, loss, metrics = model(x, y)
+            teacher_ratio = max(0.1, 1.0 - epoch * 0.05)  # 从1逐渐降到0.1
+            pred, loss, metrics = model(x, y,teacher_ratio)
             # Backpropagation
             loss.backward()
             optimizer.step()
@@ -95,7 +96,7 @@ def train(args):
                 {"model": model.state_dict(), "optim": optimizer.state_dict(), "epoch": epoch},
                 best_ckpt,
             )
-        print(f"🌟 New best model saved at epoch {epoch} with loss {best_loss:.6f}")
+            print(f"🌟 New best model saved at epoch {epoch} with loss {best_loss:.6f}")
 
         if (epoch + 1) % save_freq == 0:
             torch.save(model.state_dict(), ckpt_dir / f"epoch_{epoch+1}.pt")

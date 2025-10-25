@@ -8,7 +8,7 @@ import pinocchio as pin
 from scipy.spatial.transform import Rotation as R
 
 # ========== CONFIG ==========
-csv_path = "./results_generated/sample_000_b0_n0.csv"        # CSV 文件夹路径
+csv_path = "./results_generated/sample_000_b1_n0.csv"        # CSV 文件夹路径
 urdf_path = "./g1_clipped_retargeted_dataset/g1/g1_29dof_rev_1_0.urdf"
 urdf_dir = "./g1_clipped_retargeted_dataset/g1"
 robot_name = "g1"
@@ -102,10 +102,12 @@ for frame_idx in range(num_frames):
         ])
         R_link = R.from_quat(quat).as_matrix()
 
+        pos_world = pos_root + R_root @ pos
+        R_world = R_root @ R_link
         mesh = link2mesh[f].copy()
         T = np.eye(4)
-        T[:3, :3] = R_link
-        T[:3, 3] = pos
+        T[:3, :3] = R_world
+        T[:3, 3] = pos_world
         mesh.apply_transform(T)
 
         rr.log(

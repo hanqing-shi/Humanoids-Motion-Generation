@@ -55,4 +55,8 @@
 
 ### 10.22
 Got the initial result. The body seems to be torn apart, which means the generated body positions couldn't make a whole body.
-![initial_result](/img/initial_result.png "collision in original retarget")
+![initial_result](/img/initial_result.png)
+
+### 10.24
+After carefully reviewed about the model part, I decided to use the teacher forcing technique in VAE training. And the result is much better, although it still has some artifact like seperate body parts.
+![teacher_forcing](/img/teacher_forcing.png)

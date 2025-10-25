@@ -46,8 +46,9 @@ class GRUDecoder(nn.Module):
     def __init__(self, cond_dim, z_dim, hidden_dim, out_dim, num_layers=1, dropout=0.0):
         super().__init__()
         # init hidden state from condition summary + z
+        self.cond_enc = GRUEncoder(cond_dim, hidden_dim, num_layers=1, bidir=False)
         self.init_mlp = nn.Sequential(
-            nn.Linear(cond_dim + z_dim, hidden_dim),
+            nn.Linear(hidden_dim + z_dim, hidden_dim),
             nn.ReLU(),
             nn.Linear(hidden_dim, hidden_dim),
             nn.Tanh()
@@ -55,7 +56,7 @@ class GRUDecoder(nn.Module):
 
         # GRU input = [current_cond_t, prev_state]
         self.gru = nn.GRU(
-            input_size=cond_dim + out_dim,
+            input_size=cond_dim + out_dim + z_dim,
             hidden_size=hidden_dim,
             num_layers=num_layers,
             batch_first=True,
@@ -64,7 +65,7 @@ class GRUDecoder(nn.Module):
 
         self.out = nn.Linear(hidden_dim, out_dim)
 
-    def forward(self, cond_seq, z, x0):
+    def forward(self, cond_seq, z, x_future,teacher_force_ratio=0.0):
         """
         Args:
             cond_seq: (B, T_pred, D_c)  - velocity or other condition sequence
@@ -78,21 +79,24 @@ class GRUDecoder(nn.Module):
         # TODO: how to encode condition
         # self.cond_enc = GRUEncoder(T_pred, cond_dim)
         # cond_vec = self.cond_enc(cond_seq)
-
-        cond_vec = cond_seq.mean(dim=1)  # (B, D_c)   # simple average pooling as condition summary
+        cond_vec = self.cond_enc(cond_seq)
+        #cond_vec = cond_seq.mean(dim=1)  # (B, D_c)   # simple average pooling as condition summary
         h0 = self.init_mlp(torch.cat([cond_vec, z], dim=-1)).unsqueeze(0)  # (1,B,H)
 
         outputs = []
-        x_prev = x0  # start from current state
+        x_prev = x_future  # start from current state
 
         for t in range(T_pred):
             cond_t = cond_seq[:, t, :]  # (B, D_c)
-            dec_in = torch.cat([cond_t, x_prev], dim=-1).unsqueeze(1)  # (B,1,D_c+D_x)
+            dec_in = torch.cat([cond_t, x_prev, z], dim=-1).unsqueeze(1)  # (B,1,D_c+D_x)
             dec_out, h0 = self.gru(dec_in, h0)                         # (B,1,H)
             x_pred = self.out(dec_out.squeeze(1))                      # (B,D_x)
             outputs.append(x_pred.unsqueeze(1))
             x_prev = x_pred                                            # feed next step
-
+            # if (torch.rand(1).item() < teacher_force_ratio and t < T_pred - 1):
+            #     x_prev = x_future[:, t+1, :]  # 使用真实下一步
+            # else:
+            #     x_prev = x_pred
         y_hat = torch.cat(outputs, dim=1)  # (B,T_pred,D_x)
         return y_hat
 
@@ -141,10 +145,10 @@ class TrajCVAE(nn.Module):
         mu, logvar = self.to_mu(f_vec), self.to_logvar(f_vec)
         return mu, logvar
 
-    def decode(self, cond_seq, z, x0):
-        return self.decoder(cond_seq, z, x0)
+    def decode(self, cond_seq, z, x0,teacher_force_ratio=1):
+        return self.decoder(cond_seq, z, x0,teacher_force_ratio=1)
 
-    def forward(self, x_future, cond_seq, beta=1.0):
+    def forward(self, x_future, cond_seq, beta=1.0, teacher_force_ratio=0.0):
         """
         Training forward pass.
         Args:
@@ -155,12 +159,11 @@ class TrajCVAE(nn.Module):
         z = reparameterize(mu, logvar)
 
         # use the first frame of ground truth trajectory as starting state
-        x0 = x_future[:, 0, :]
 
-        y_hat = self.decode(cond_seq, z, x0)
+        y_hat = self.decode(cond_seq, z, x_future,teacher_force_ratio=teacher_force_ratio)
 
         recon = F.mse_loss(y_hat, x_future, reduction="none").mean(dim=(1, 2))
-        kl = kl_divergence(mu, logvar) / mu.size(-1)
+        kl = kl_divergence(mu, logvar)
         loss = (recon + beta * kl).mean()
         return y_hat, loss, {"recon": recon.mean().item(), "kl": kl.mean().item()}
 

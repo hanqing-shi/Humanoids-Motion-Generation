@@ -12,7 +12,8 @@ class MotionDataset(Dataset):
                  motions=['walk'],  # list of motion subfolders
                  columns=("pos", "ori", "vel", "angvel"),
                  stride=100,
-                 transform=None):
+                 transform=None,
+                 normalize=True):
         """
         Args:
             data_dir (str): path to folder containing feature CSVs
@@ -29,7 +30,8 @@ class MotionDataset(Dataset):
         self.columns = columns
         self.stride = stride
         self.transform = transform
-        
+        self.normalize = normalize
+
         # --------------------------------------------------
         # Collect all feature CSV files
         # --------------------------------------------------
@@ -91,7 +93,8 @@ class MotionDataset(Dataset):
         # Preprocess: compute slicing points for each file
         # --------------------------------------------------
         self.samples = []  # [(file_path, start_idx)]
-
+        all_data = []   # ✅ 用来计算全局统计量
+        all_label = []
         for file_path in self.input_files:
             df = pd.read_csv(file_path)
             T = len(df)
@@ -100,6 +103,14 @@ class MotionDataset(Dataset):
             starts = list(range(0, T - seq_len + 1, stride))
             for s in starts:
                 self.samples.append((file_path, s))
+            
+            # # 收集部分样本用于计算mean/std
+            # all_data.append(df[self.selected_cols].values.astype(np.float32))
+            # # label
+            # rel_path = os.path.relpath(file_path, self.data_dir)
+            # label_path = os.path.join(self.label_dir, rel_path.replace('_feature', '_label'))
+            # label_df = pd.read_csv(label_path)
+            # all_label.append(label_df.values.astype(np.float32))
         
         print(f"📊 Total {len(self.samples)} subsequences from {len(self.input_files)} files")
 

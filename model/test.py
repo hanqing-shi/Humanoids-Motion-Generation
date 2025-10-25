@@ -39,7 +39,7 @@ def main():
     ).to(device)
 
     # Load trained checkpoint
-    ckpt = torch.load("checkpoints/last.pt", map_location=device)
+    ckpt = torch.load("checkpoints/best.pt", map_location=device)
     model.load_state_dict(ckpt["model"])
     model.eval()
 
@@ -63,6 +63,9 @@ def main():
             #   label: (B, T, D_c) - condition sequence (e.g., velocities)
 
             cond_seq = label.to(device)  # condition input
+            # N = 300
+            # cond_seq = torch.zeros(32 ,N, 3).to(device)  # zero condition for testing
+            # cond_seq[:,1] = 0.5
             x0 = state[:, 0, :].to(device)  # initial state (first frame)
 
             # Generate trajectories from the prior
@@ -70,9 +73,9 @@ def main():
             B, N, T, D = samples.shape
             
             # Predict trajectory (use reparameterized z)
-            y_hat, loss, metrics = model(state, cond_seq)  # Forward pass in eval mode
-            mse_loss = criterion(y_hat, state).item()
-            print(f"Batch {batch_idx}: MSE = {mse_loss:.6f}, Recon = {metrics['recon']:.6f}, KL = {metrics['kl']:.6f}")
+            # y_hat, loss, metrics = model(state, cond_seq)  # Forward pass in eval mode
+            # mse_loss = criterion(y_hat, state).item()
+            # print(f"Batch {batch_idx}: MSE = {mse_loss:.6f}, Recon = {metrics['recon']:.6f}, KL = {metrics['kl']:.6f}")
             # Save results to disk
             for i in range(min(3, B)):  # only save first few examples per batch
                 for n in range(N):
