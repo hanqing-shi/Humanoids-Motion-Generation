@@ -139,10 +139,11 @@ def process_csv(csv_path: str, urdf_path: str, dt: float, out_dir: str):
         body_pos_local[t] = Pl.reshape(-1)
         body_v_local[t]   = Vl.reshape(-1)
 
+    
 
     #body_v_world, body_v_local = linear_velocities_from_pos_quat(body_pos_world, q_wxyz, dt)
 
-    state = np.hstack((positions, q_wxyz, v_local, omega_local, body_pos_local, body_v_local))
+    state = np.hstack((positions, q_wxyz, v_local, omega_local, body_pos_local, body_v_local, body_q, body_omega))
     os.makedirs(out_dir, exist_ok=True)
     base = os.path.splitext(os.path.basename(csv_path))[0]
     out_path = os.path.join(out_dir, f"{base}_training.csv")
