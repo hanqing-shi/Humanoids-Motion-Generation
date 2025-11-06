@@ -8,14 +8,14 @@ import pinocchio as pin
 from scipy.spatial.transform import Rotation as R
 
 # ========== CONFIG ==========
-csv_path = "./results_generated/sample_000_b1_n0.csv"        # CSV 文件夹路径
-urdf_path = "./g1_clipped_retargeted_dataset/g1/g1_29dof_rev_1_0.urdf"
-urdf_dir = "./g1_clipped_retargeted_dataset/g1"
+csv_path = "./results_generated/merged_sample_000_b29_n0.csv"
+urdf_path = "./dataset/g1_retargeted_dataset/g1/g1_29dof_rev_1_0.urdf"
+urdf_dir = "./dataset/g1_retargeted_dataset/g1"
 robot_name = "g1"
-frame_rate = 30                       # Hz
+frame_rate = 30 
 # ============================
 
-# ===== 手动定义 header（顺序必须和 CSV 一致） =====
+# ===== define header =====
 frame_names = [
     'pelvis', 'left_hip_pitch_link', 'left_hip_roll_link', 'left_hip_yaw_link', 'left_knee_link',
     'left_ankle_pitch_link', 'left_ankle_roll_link', 'pelvis_contour_link', 'right_hip_pitch_link',
@@ -38,20 +38,17 @@ for f in frame_names:
     feature_header += [
         f'{f}_pos_x', f'{f}_pos_y', f'{f}_pos_z',
         f'{f}_ori_w', f'{f}_ori_x', f'{f}_ori_y', f'{f}_ori_z',
-        f'{f}_vel_x', f'{f}_vel_y', f'{f}_vel_z',
-        f'{f}_angvel_x', f'{f}_angvel_y', f'{f}_angvel_z'
+        #f'{f}_vel_x', f'{f}_vel_y', f'{f}_vel_z',
+        #f'{f}_angvel_x', f'{f}_angvel_y', f'{f}_angvel_z'
     ]
 # ==============================================
 
-# 初始化 rerun
 rr.init("VisualizeCSVMesh_NoHeader", spawn=True)
 rr.log("", rr.ViewCoordinates.RIGHT_HAND_Z_UP, static=True)
 
-# 加载 Pinocchio 模型
 robot = pin.RobotWrapper.BuildFromURDF(urdf_path, urdf_dir, pin.JointModelFreeFlyer())
 print(f"✅ Loaded URDF: {urdf_path}")
 
-# 加载每个 visual link 的 mesh
 link2mesh = {}
 for visual in robot.visual_model.geometryObjects:
     frame_name = visual.name[:-2]
@@ -61,18 +58,26 @@ for visual in robot.visual_model.geometryObjects:
     link2mesh[frame_name] = mesh
 print(f"✅ Loaded {len(link2mesh)} meshes")
 
-# 读取所有 CSV
+for f, mesh in link2mesh.items():
+    rr.log(
+        f"{robot_name}/{f}/mesh",
+        rr.Mesh3D(
+            vertex_positions=mesh.vertices,
+            triangle_indices=mesh.faces,
+            vertex_normals=mesh.vertex_normals,
+            vertex_colors=mesh.visual.vertex_colors,
+        ),
+        static=True, 
+    )
 
-# 遍历 CSV 文件
 print(f"▶️ Visualizing {csv_path}")
 data = np.genfromtxt(csv_path, delimiter=",", names=feature_header)
 num_frames = data.shape[0]
 
-# 动画播放
+# visualize frames
 for frame_idx in range(num_frames):
     rr.set_time_sequence("frame", frame_idx)
     
-    # 根姿态
     pos_root = np.array([data["root_x"][frame_idx],
                             data["root_y"][frame_idx],
                             data["root_z"][frame_idx]])
@@ -84,7 +89,6 @@ for frame_idx in range(num_frames):
     rr.log(f"{robot_name}/root",
             rr.Transform3D(translation=pos_root, mat3x3=R_root, axis_length=0.05))
 
-    # 每个 link mesh
     for f in frame_names:
         if f not in link2mesh:
             continue
@@ -104,20 +108,10 @@ for frame_idx in range(num_frames):
 
         pos_world = pos_root + R_root @ pos
         R_world = R_root @ R_link
-        mesh = link2mesh[f].copy()
-        T = np.eye(4)
-        T[:3, :3] = R_world
-        T[:3, 3] = pos_world
-        mesh.apply_transform(T)
 
         rr.log(
             f"{robot_name}/{f}",
-            rr.Mesh3D(
-                vertex_positions=mesh.vertices,
-                triangle_indices=mesh.faces,
-                vertex_normals=mesh.vertex_normals,
-                vertex_colors=mesh.visual.vertex_colors,
-            ),
+            rr.Transform3D(translation=pos_world, mat3x3=R_world),
         )
 
     time.sleep(1.0 / frame_rate)

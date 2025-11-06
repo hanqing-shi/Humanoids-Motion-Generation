@@ -9,12 +9,6 @@ def reparameterize(mu, logvar):
     eps = torch.randn_like(std)
     return mu + eps * std
 
-
-def kl_divergence(mu, logvar):
-    """KL( q(z|.) || N(0,I) ) per-sample"""
-    return 0.5 * torch.sum(torch.exp(logvar) + mu**2 - 1.0 - logvar, dim=-1)
-
-
 class GRUEncoder(nn.Module):
     """Encodes a sequence (B,T,D) -> fixed vector (B,H)"""
     def __init__(self, input_dim, hidden_dim, num_layers=1, bidir=False, dropout=0.0):
@@ -65,7 +59,7 @@ class GRUDecoder(nn.Module):
 
         self.out = nn.Linear(hidden_dim, out_dim)
 
-    def forward(self, cond_seq, z, x_future,teacher_force_ratio):
+    def forward(self, cond_seq, z, x_future):
         """
         Args:
             cond_seq: (B, T_pred, D_c)  - velocity or other condition sequence
@@ -99,7 +93,73 @@ class GRUDecoder(nn.Module):
         y_hat = torch.cat(outputs, dim=1)  # (B,T_pred,D_x)
         return y_hat
 
+class MLPEncoder(nn.Module):
+    def __init__(
+        self,
+        frame_size,
+        latent_size,
+        hidden_size,
+        condition_size,
+        feature_size,
+    ):
+        super().__init__()
+        # Encoder
+        # Takes (future pose) | condition: (current pose + future velocity label) as input
+        input_size = frame_size * feature_size + condition_size
+        traj_size = frame_size * feature_size
+        self.fc1 = nn.Linear(input_size, hidden_size)
+        self.fc2 = nn.Linear(traj_size + hidden_size, hidden_size)
+        self.mu = nn.Linear(traj_size + hidden_size, latent_size)
+        self.logvar = nn.Linear(traj_size + hidden_size, latent_size)
 
+    def encode(self, x, c):
+        x = x.reshape(x.shape[0], -1)  # flatten
+        c = c.reshape(c.shape[0], -1)
+        h1 = F.elu(self.fc1(torch.cat((x, c), dim=1)))
+        h2 = F.elu(self.fc2(torch.cat((x, h1), dim=1)))
+        s = torch.cat((x, h2), dim=1)
+        return self.mu(s), self.logvar(s)
+
+    def reparameterize(self, mu, logvar):
+        std = torch.exp(0.5 * logvar)
+        eps = torch.randn_like(std)
+        return mu + eps * std
+
+    def forward(self, x, c):
+        mu, logvar = self.encode(x, c)
+        z = self.reparameterize(mu, logvar)
+        return z, mu, logvar
+    
+class MLPDecoder(nn.Module):
+    def __init__(
+        self,
+        frame_size,
+        latent_size,
+        hidden_size,
+        condition_size,
+        feature_size,
+    ):
+        super().__init__()
+        # Decoder
+        # Takes latent | condition as input
+        input_size = latent_size + condition_size
+        output_size = feature_size * frame_size
+        self.fc4 = nn.Linear(input_size, hidden_size)
+        self.fc5 = nn.Linear(latent_size + hidden_size, hidden_size)
+        self.out = nn.Linear(latent_size + hidden_size, output_size)
+        self.frame_size = frame_size
+        self.feature_size = feature_size
+
+    def decode(self, z, c):
+        c = c.reshape(c.shape[0], -1) # flatten
+        h4 = F.elu(self.fc4(torch.cat((z, c), dim=1)))
+        h5 = F.elu(self.fc5(torch.cat((z, h4), dim=1)))
+        out = self.out(torch.cat((z, h5), dim=1))
+        return out.reshape(out.shape[0], self.frame_size, self.feature_size)  # (B, T, D)
+
+    def forward(self, z, c):
+        return self.decode(z, c)
+    
 class TrajCVAE(nn.Module):
     """
     Conditional VAE for trajectory generation.
@@ -110,7 +170,6 @@ class TrajCVAE(nn.Module):
         self,
         traj_dim,          # per-frame feature dimension D_x
         cond_dim,          # per-frame condition dimension D_c
-        cond_hidden=256,
         fut_hidden=256,
         z_dim=64,
         dec_hidden=256,
@@ -142,10 +201,10 @@ class TrajCVAE(nn.Module):
         mu, logvar = self.to_mu(f_vec), self.to_logvar(f_vec)
         return mu, logvar
 
-    def decode(self, cond_seq, z, x0,teacher_force_ratio=1):
-        return self.decoder(cond_seq, z, x0,teacher_force_ratio=teacher_force_ratio)
+    def decode(self, cond_seq, z, x0):
+        return self.decoder(cond_seq, z, x0)
 
-    def forward(self, x_future, cond_seq, beta=1.0, teacher_force_ratio=0.0):
+    def forward(self, x_future, cond_seq):
         """
         Training forward pass.
         Args:
@@ -156,14 +215,12 @@ class TrajCVAE(nn.Module):
         z = reparameterize(mu, logvar)
 
         # use the first frame of ground truth trajectory as starting state
-        y_hat = self.decode(cond_seq, z, x_future,teacher_force_ratio=teacher_force_ratio)
-        recon = F.mse_loss(y_hat, x_future, reduction="none").sum(dim=(1, 2))
-        kl = kl_divergence(mu, logvar)
-        loss = (recon + beta * kl).mean()
-        return y_hat, loss, {"recon": recon.mean().item(), "kl": kl.mean().item()}
+        y_hat = self.decode(cond_seq, z, x_future)
+        
+        return y_hat, mu, logvar
 
     @torch.no_grad()
-    def sample(self, cond_seq, x0, T_pred=None, n_samples=1):
+    def sample(self, cond_seq, x0, T_pred=None):
         """Generate trajectories from the prior.
 
         Args:
@@ -185,14 +242,53 @@ class TrajCVAE(nn.Module):
         z_dim = self.to_mu.out_features
 
         # Repeat condition and initial state for each requested sample.
-        cond_seq_rep = cond_seq.unsqueeze(1).expand(B, n_samples, T, -1)
-        cond_seq_rep = cond_seq_rep.reshape(B * n_samples, T, -1)
+        cond_seq_rep = cond_seq.unsqueeze(1).expand(B, T, -1)
+        cond_seq_rep = cond_seq_rep.reshape(B, T, -1)
 
-        x0_rep = x0.unsqueeze(1).expand(B, n_samples, -1)
-        x0_rep = x0_rep.reshape(B * n_samples, 1, -1)
+        x0_rep = x0.unsqueeze(1).expand(B, -1)
+        x0_rep = x0_rep.reshape(B, 1, -1)
         # print('sample:',cond_seq_rep.shape, x0_rep.shape)
         # Sample from the standard normal prior.
-        z = torch.randn(B * n_samples, z_dim, device=device)
+        z = torch.randn(B, z_dim, device=device)
 
         y_hat = self.decode(cond_seq_rep[:, :T_pred, :], z, x0_rep)
-        return y_hat.view(B, n_samples, T_pred, -1)
+        return y_hat.view(B, T_pred, -1)
+    
+class MlpCVAE(nn.Module):
+    def __init__(
+        self,
+        frame_size,
+        latent_size,
+        condition_size,
+        feature_size,
+        hidden_size=128,
+    ):
+        super().__init__()
+        self.frame_size = frame_size
+        self.latent_size = latent_size
+        self.condition_size = condition_size
+        self.feature_size = feature_size
+
+        args = (
+            frame_size,
+            latent_size,
+            hidden_size,
+            condition_size,
+            feature_size,
+        )
+
+        self.encoder = MLPEncoder(*args)
+        self.decoder = MLPDecoder(*args)
+
+    def forward(self, x, c):
+        mu, logvar = self.encode(x, c)
+        z = reparameterize(mu, logvar)
+        return self.decoder(z, c), mu, logvar
+
+    def encode(self, x, c):
+        z, mu, logvar = self.encoder(x, c)
+        return mu, logvar
+    
+    @torch.no_grad()
+    def sample(self, z, c):
+        return self.decoder(z, c)
