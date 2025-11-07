@@ -12,8 +12,9 @@ import models
 
 def parse_cli():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model", default='MlpCVAE', help="Model class name in models.py")
-    parser.add_argument("--dataset", default='joint', help="joint or feature")
+    parser.add_argument("--model", default='TrajCVAE', help="Model class name in models.py")
+    parser.add_argument("--dataset", default='feature', help="joint or feature")
+    parser.add_argument("--teacher-forcing-ratio", type=float, default=0)
     parser.add_argument("--epochs", type=int, default=30)
     parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--save-dir", default="checkpoints")
@@ -58,7 +59,12 @@ def train(args):
     cond_dim = loader.dataset[0][1].shape[-1]
     ModelClass = getattr(models, args.model)
     if args.model == 'TrajCVAE':
-        model = ModelClass(traj_dim, cond_dim).to(device)
+        model = ModelClass(
+            traj_dim, 
+            cond_dim,
+            teacher_forcing=args.teacher_forcing_ratio,
+            past_lenth=10
+        ).to(device)
     elif args.model == 'MlpCVAE':
         model = ModelClass(
             frame_size,
@@ -141,7 +147,7 @@ def train(args):
             print(f"🌟 New best model saved at epoch {epoch} with loss {best_loss:.6f}")
 
         if (epoch + 1) % save_freq == 0:
-            torch.save(model.state_dict(), ckpt_dir / f"{args.model}_epoch_{epoch+1}.pt")
+            torch.save({"model": model.state_dict(), "optim": optimizer.state_dict(), "epoch": epoch}, ckpt_dir / f"{args.model}_epoch_{epoch+1}.pt")
 
     print(f"🎉 Training complete! Checkpoints saved to: {ckpt_dir}")
 

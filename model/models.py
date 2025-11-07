@@ -37,7 +37,7 @@ class GRUDecoder(nn.Module):
       - latent z (B, z_dim)
       - initial state x0 (B, D_x)
     """
-    def __init__(self, cond_dim, z_dim, hidden_dim, out_dim, num_layers=1, dropout=0.0):
+    def __init__(self, cond_dim, z_dim, hidden_dim, out_dim, num_layers=1, dropout=0.0, teacher_forcing_ratio=0):
         super().__init__()
         # init hidden state from condition summary + z
         self.cond_enc = GRUEncoder(cond_dim, hidden_dim, num_layers=1, bidir=False)
@@ -47,7 +47,7 @@ class GRUDecoder(nn.Module):
             nn.Linear(hidden_dim, hidden_dim),
             nn.Tanh()
         )
-
+        self.teacher_forcing_ratio = teacher_forcing_ratio
         # GRU input = [current_cond_t, prev_state]
         self.gru = nn.GRU(
             input_size=cond_dim + out_dim,
@@ -59,23 +59,9 @@ class GRUDecoder(nn.Module):
 
         self.out = nn.Linear(hidden_dim, out_dim)
 
-    def forward(self, cond_seq, z, x_future):
-        """
-        Args:
-            cond_seq: (B, T_pred, D_c)  - velocity or other condition sequence
-            z:        (B, z_dim)
-            x0:       (B, D_x)          - initial state (current state)
-        Returns:
-            y_hat: (B, T_pred, D_x)
-        """
+    def forward(self, cond_seq, z, x_future, h_enc):
         B, T_pred, _ = cond_seq.shape
-        # compute global context for init hidden
-        # TODO: how to encode condition
-        # self.cond_enc = GRUEncoder(T_pred, cond_dim)
-        # cond_vec = self.cond_enc(cond_seq)
-        cond_vec = self.cond_enc(cond_seq)
-        #cond_vec = cond_seq.mean(dim=1)  # (B, D_c)   # simple average pooling as condition summary
-        h0 = self.init_mlp(torch.cat([cond_vec, z], dim=-1)).unsqueeze(0)  # (1,B,H)
+        h0 = self.init_mlp(torch.cat([h_enc, z], dim=-1)).unsqueeze(0)
         outputs = []
         x_prev = x_future[:,0,:]  # x0
         outputs = [x_prev.unsqueeze(1)]
@@ -83,13 +69,18 @@ class GRUDecoder(nn.Module):
             cond_t = cond_seq[:, t, :]  # (B, D_c)
             dec_in = torch.cat([cond_t,x_prev], dim=-1).unsqueeze(1)  # (B,1,D_c+D_x)
             dec_out, h0 = self.gru(dec_in, h0)                         # (B,1,H)
-            x_pred = self.out(dec_out.squeeze(1))                      # (B,D_x)
+
+            # x_pred = self.out(dec_out.squeeze(1))                      # (B,D_x)
+            # outputs.append(x_pred.unsqueeze(1))
+            raw = self.out(dec_out.squeeze(1))      # (B, D_x)
+            delta = 0.1 * torch.tanh(raw)           # [-0.1, 0.1]
+            x_pred = x_prev + delta
             outputs.append(x_pred.unsqueeze(1))
-            x_prev = x_pred                                            # feed next step
-            # if (torch.rand(1).item() < teacher_force_ratio and t < T_pred - 1):
-            #     x_prev = x_future[:, t+1, :]  # 使用真实下一步
-            # else:
-            #     x_prev = x_pred
+
+            if (torch.rand(1).item() < self.teacher_forcing_ratio) and (t < T_pred - 1):
+                x_prev = x_future[:, t+1, :]  # teacher forcing
+            else:
+                x_prev = x_pred
         y_hat = torch.cat(outputs, dim=1)  # (B,T_pred,D_x)
         return y_hat
 
@@ -170,6 +161,8 @@ class TrajCVAE(nn.Module):
         self,
         traj_dim,          # per-frame feature dimension D_x
         cond_dim,          # per-frame condition dimension D_c
+        teacher_forcing,
+        past_lenth,
         fut_hidden=256,
         z_dim=64,
         dec_hidden=256,
@@ -179,80 +172,52 @@ class TrajCVAE(nn.Module):
         bidir_fut=False
     ):
         super().__init__()
-        # Encoders
-        self.fut_enc  = GRUEncoder(traj_dim + cond_dim, fut_hidden,  num_layers, bidir=bidir_fut,  dropout=dropout)
+        # Encoder
+        self.past_enc  = GRUEncoder(traj_dim + cond_dim, fut_hidden,  num_layers, bidir=bidir_fut, dropout=dropout)
         self.to_mu = nn.Linear(fut_hidden, z_dim)
         self.to_logvar = nn.Linear(fut_hidden, z_dim)
-
-        # Decoder now takes full condition sequence
+        self.past_lenth = past_lenth
+        # Decoder
         self.decoder = GRUDecoder(
             cond_dim=cond_dim, z_dim=z_dim,
             hidden_dim=dec_hidden, out_dim=traj_dim,
-            num_layers=num_layers, dropout=dropout
+            num_layers=num_layers, dropout=dropout,
+            teacher_forcing_ratio = teacher_forcing
         )
 
-    def encode(self, x_future, cond_seq):
-        """
-        x_future: (B, T_pred, D_x)
-        cond_seq: (B, T_cond, D_c)
-        """
-        enc_in = torch.cat([x_future, cond_seq], dim=-1)  # (B,T,D_x+D_c)
-        f_vec = self.fut_enc(enc_in)
-        mu, logvar = self.to_mu(f_vec), self.to_logvar(f_vec)
-        return mu, logvar
+    def encode(self, x, cond_seq):
+        enc_in = torch.cat([x, cond_seq], dim=-1)  # (B,T,D_x+D_c)
+        h_enc = self.past_enc(enc_in)
+        mu, logvar = self.to_mu(h_enc), self.to_logvar(h_enc)
+        return mu, logvar, h_enc
 
-    def decode(self, cond_seq, z, x0):
-        return self.decoder(cond_seq, z, x0)
+    def decode(self, cond_seq, z, x, h_enc):
+        return self.decoder(cond_seq, z, x, h_enc)
 
-    def forward(self, x_future, cond_seq):
-        """
-        Training forward pass.
-        Args:
-            cond_seq: (B, T_pred, D_c)
-            x_future: (B, T_pred, D_x)
-        """
-        mu, logvar = self.encode(x_future, cond_seq)
+    def forward(self, x, cond_seq):
+        x_past = x[:, :self.past_lenth, :]
+        x_future = x[:, self.past_lenth:, :]
+        cond_past = cond_seq[:, :self.past_lenth, :]
+        cond_future = cond_seq[:, self.past_lenth:, :]
+
+        mu, logvar, h_enc = self.encode(x_past, cond_past)
         z = reparameterize(mu, logvar)
-
-        # use the first frame of ground truth trajectory as starting state
-        y_hat = self.decode(cond_seq, z, x_future)
-        
+        y_hat = self.decode(cond_future, z, x_future, h_enc)
+        y_hat = torch.cat([x_past, y_hat], dim=1) # full trajectory
         return y_hat, mu, logvar
 
     @torch.no_grad()
-    def sample(self, cond_seq, x0, T_pred=None):
-        """Generate trajectories from the prior.
-
-        Args:
-            cond_seq (Tensor): Condition sequence of shape ``(B, T, D_c)``.
-            x0 (Tensor): Initial pose/state of shape ``(B, D_x)``.
-            T_pred (int, optional): Length of the trajectory to generate. If
-                ``None`` it defaults to the length of ``cond_seq``.
-            n_samples (int): Number of samples to draw per input in the batch.
-
-        Returns:
-            Tensor: Samples with shape ``(B, n_samples, T, D_x)``.
-        """
-
-        B, T, _ = cond_seq.shape
-        if T_pred is None:
-            T_pred = T
-
-        device = cond_seq.device
+    def sample(self, cond_past, cond_future, x_past, x_future):
+        B, T, _ = cond_future.shape
+        device = cond_future.device
         z_dim = self.to_mu.out_features
 
-        # Repeat condition and initial state for each requested sample.
-        cond_seq_rep = cond_seq.unsqueeze(1).expand(B, T, -1)
-        cond_seq_rep = cond_seq_rep.reshape(B, T, -1)
+        mu, logvar, h_enc = self.encode(x_past, cond_past)
+        z = reparameterize(mu, logvar)
 
-        x0_rep = x0.unsqueeze(1).expand(B, -1)
-        x0_rep = x0_rep.reshape(B, 1, -1)
-        # print('sample:',cond_seq_rep.shape, x0_rep.shape)
-        # Sample from the standard normal prior.
-        z = torch.randn(B, z_dim, device=device)
+        y_hat = self.decode(cond_future, z, x_future, h_enc)
 
-        y_hat = self.decode(cond_seq_rep[:, :T_pred, :], z, x0_rep)
-        return y_hat.view(B, T_pred, -1)
+        return y_hat.view(B, T, -1)
     
 class MlpCVAE(nn.Module):
     def __init__(
