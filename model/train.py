@@ -25,7 +25,7 @@ def kl_divergence(mu, logvar):
     """KL( q(z|.) || N(0,I) ) per-sample"""
     return 0.5 * torch.sum(torch.exp(logvar) + mu**2 - 1.0 - logvar, dim=-1)
 
-def get_dataloader(batch_size, dataset, num_workers=4, shuffle=True):
+def get_dataloader(batch_size, dataset, num_workers=0, shuffle=True):
     if dataset == 'feature':
         dataset = MotionDataset( 
                     data_dir = './dataset/data_feature', 
@@ -35,7 +35,7 @@ def get_dataloader(batch_size, dataset, num_workers=4, shuffle=True):
                     columns=("pos", "ori"),
                     stride=10,
                     transform=None)
-        return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, num_workers=4)
+        return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, num_workers=0)
     if dataset == 'joint':
         dataset = JointDataset( 
                     data_dir = './dataset/data_joint', 
@@ -44,12 +44,12 @@ def get_dataloader(batch_size, dataset, num_workers=4, shuffle=True):
                     motions = ['walk'],
                     stride=10,
                     transform=None)
-        return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, num_workers=4)
+        return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, num_workers=0)
 
 def train(args):
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     # Initialize dataloader
-    loader = get_dataloader(args.batch_size, args.dataset, num_workers=4)
+    loader = get_dataloader(args.batch_size, args.dataset, num_workers=0)
     
     # Load model 
     if not hasattr(models, args.model):

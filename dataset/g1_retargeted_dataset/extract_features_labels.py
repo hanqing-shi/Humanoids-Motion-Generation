@@ -32,9 +32,9 @@ def butter_lowpass_filtfilt(x, dt, cutoff_hz=3.0, order=3):
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument('--folder', type=str, default='./g1_clipped_retargeted_dataset/walk_test/', help="Input folder containing CSV files")
+    parser.add_argument('--folder', type=str, default='./g1_clipped_retargeted_dataset/walk/', help="Input folder containing CSV files")
     parser.add_argument('--feature_out_folder', type=str, default='./data_feature/walk', help="Output folder for processed files")
-    parser.add_argument('--label_out_folder', type=str, default='./data_test_label/walk', help="Output folder for label files")
+    parser.add_argument('--label_out_folder', type=str, default='./data_label/walk', help="Output folder for label files")
     parser.add_argument('--robot_type', type=str, default='g1', help="Robot type (URDF folder name)")
     parser.add_argument('--plot', action='store_true', help="Save velocity-vs-time plots next to outputs")
     args = parser.parse_args()
