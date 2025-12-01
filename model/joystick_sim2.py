@@ -4,7 +4,7 @@ import argparse
 import numpy as np
 import torch
 
-from dataset import MotionDataset
+from dataset import MotionDataset, JointDataset
 from models import TrajCVAE
 
 import rerun as rr
@@ -12,17 +12,18 @@ import trimesh
 import pinocchio as pin
 from scipy.spatial.transform import Rotation as R
 
-# joystick support
+# Optional joystick support
 try:
     import pygame
     HAS_PYGAME = True
 except ImportError:
     HAS_PYGAME = False
 
-DEFAULT_DATA_DIR  = "./dataset/data_feature"
-DEFAULT_LABEL_DIR = "./dataset/data_label"
-DEFAULT_MOTIONS   = ["walk"]
-DEFAULT_CKPT      = "./checkpoints/TrajCVAE_best.pt"
+DEFAULT_DATA_DIR_FEATURE = "./dataset/data_feature"
+DEFAULT_DATA_DIR_JOINT   = "./dataset/data_joint"
+DEFAULT_LABEL_DIR        = "./dataset/data_label"
+DEFAULT_MOTIONS          = ["walk"]
+DEFAULT_CKPT             = "./checkpoints/TrajCVAE_best.pt"
 
 PAST = 10      # must match past_lenth in training pipeline
 H    = 20      # horizon per step
@@ -75,10 +76,8 @@ def init_joystick():
     return js
 
 
-
 def read_joystick_command(js):
-    """
-    Return [linear_x, linear_y, angular_z].
+    """Return [linear_x, linear_y, angular_z].
 
     If a joystick is present:
       - Left stick Y (axis 1): forward/back    -> linear_x (invert so up = +)
@@ -130,7 +129,6 @@ def read_joystick_command(js):
     return np.array([linear_x, linear_y, angular_z], dtype=np.float32)
 
 
-
 def to_torch(x, device):
     return torch.tensor(x, dtype=torch.float32, device=device)
 
@@ -166,30 +164,61 @@ def load_robot_and_meshes():
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data_dir",  default=DEFAULT_DATA_DIR)
+    parser.add_argument(
+        "--data_dir",
+        default=DEFAULT_DATA_DIR_FEATURE,
+        help="Base data directory. For joint mode the default is overridden to data_joint.",
+    )
     parser.add_argument("--label_dir", default=DEFAULT_LABEL_DIR)
     parser.add_argument("--motions",   nargs="+", default=DEFAULT_MOTIONS)
     parser.add_argument("--ckpt",      default=DEFAULT_CKPT)
+    parser.add_argument(
+        "--dataset",
+        choices=["feature", "joint"],
+        default="feature",
+        help="Which trained model to use: feature (MotionDataset) or joint (JointDataset).",
+    )
+
     args = parser.parse_args()
 
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
 
-    ds = MotionDataset(
-        data_dir=args.data_dir,
-        label_dir=args.label_dir,
-        seq_len=30,
-        motions=args.motions,
-        columns=("pos", "ori"),
-        stride=10,
-        transform=None,
-    )
+    # Resolve data_dir depending on dataset type
+    if args.dataset == "joint" and args.data_dir == DEFAULT_DATA_DIR_FEATURE:
+        data_dir = DEFAULT_DATA_DIR_JOINT
+    else:
+        data_dir = args.data_dir
+
+    # Build dataset
+    if args.dataset == "feature":
+        ds = MotionDataset(
+            data_dir=data_dir,
+            label_dir=args.label_dir,
+            seq_len=30,
+            motions=args.motions,
+            columns=("pos", "ori"),
+            stride=10,
+            transform=None,
+        )
+    else:  # joint
+        ds = JointDataset(
+            data_dir=data_dir,
+            label_dir=args.label_dir,
+            seq_len=30,
+            motions=args.motions,
+            stride=10,
+            transform=None,
+        )
+
     state_seq, label_seq = ds[0]
     frame_size, traj_dim = state_seq.shape
     cond_dim = label_seq.shape[-1]
     print(f"traj_dim = {traj_dim}, cond_dim = {cond_dim}")
 
-    selected_cols = ds.selected_cols
+    selected_cols = getattr(ds, "selected_cols", None)
+    if selected_cols is None:
+        raise RuntimeError("Dataset must expose selected_cols attribute for column indexing.")
     name_to_idx = {name: i for i, name in enumerate(selected_cols)}
 
     # initialize history with real data
@@ -215,6 +244,8 @@ def main():
     rr.init("Joystick_G1_Visualizer", spawn=True)
     rr.log("", rr.ViewCoordinates.RIGHT_HAND_Z_UP, static=True)
     robot, link2mesh = load_robot_and_meshes()
+    robot_model = robot.model
+    robot_data = robot.data
 
     js = init_joystick()
     u_prev = np.zeros(3, dtype=np.float32)
@@ -226,10 +257,13 @@ def main():
 
     try:
         while True:
+            # --- Read joystick / keyboard command ---
             u_raw = read_joystick_command(js)
+            # simple smoothing
             u = 0.8 * u_prev + 0.2 * u_raw
             u_prev = u
 
+            # --- Build past/future condition & state for the CVAE ---
             x_past = x_hist[None, :, :]        # (1, PAST, traj_dim)
             cond_past = c_hist[None, :, :]     # (1, PAST, cond_dim)
 
@@ -254,9 +288,10 @@ def main():
             x_hist = np.concatenate([x_hist[1:], x_next[None, :]], axis=0)
             c_hist = np.concatenate([c_hist[1:], u[None, :]], axis=0)
 
-            # decode feature vector
+            # --- Decode the state and log with Rerun ---
             rr.set_time_seconds("log_time", time.time())
-            # root pose
+
+            # Root pose indices (present in both feature & joint datasets)
             ix_rx = name_to_idx["root_x"]
             ix_ry = name_to_idx["root_y"]
             ix_rz = name_to_idx["root_z"]
@@ -274,40 +309,75 @@ def main():
                 x_next[ix_qw],
             ])
             R_root = R.from_quat(quat_root).as_matrix()
+
+            # Always log a "root" frame for reference
             rr.log(
                 f"{ROBOT_NAME}/root",
                 rr.Transform3D(translation=pos_root, mat3x3=R_root, axis_length=0.05),
             )
 
-            for f in FRAME_NAMES:
-                if f not in link2mesh:
-                    continue
-                px = name_to_idx.get(f"{f}_pos_x")
-                py = name_to_idx.get(f"{f}_pos_y")
-                pz = name_to_idx.get(f"{f}_pos_z")
-                ox = name_to_idx.get(f"{f}_ori_x")
-                oy = name_to_idx.get(f"{f}_ori_y")
-                oz = name_to_idx.get(f"{f}_ori_z")
-                ow = name_to_idx.get(f"{f}_ori_w")
-                if None in (px, py, pz, ox, oy, oz, ow):
-                    continue
+            if args.dataset == "feature":
+                # Existing behavior: link poses are stored directly in feature vector
+                for f in FRAME_NAMES:
+                    if f not in link2mesh:
+                        continue
+                    px = name_to_idx.get(f"{f}_pos_x")
+                    py = name_to_idx.get(f"{f}_pos_y")
+                    pz = name_to_idx.get(f"{f}_pos_z")
+                    ox = name_to_idx.get(f"{f}_ori_x")
+                    oy = name_to_idx.get(f"{f}_ori_y")
+                    oz = name_to_idx.get(f"{f}_ori_z")
+                    ow = name_to_idx.get(f"{f}_ori_w")
+                    if None in (px, py, pz, ox, oy, oz, ow):
+                        continue
 
-                pos_local = np.array([x_next[px], x_next[py], x_next[pz]])
-                quat_local = np.array([
-                    x_next[ox],
-                    x_next[oy],
-                    x_next[oz],
-                    x_next[ow],
-                ])
-                R_link = R.from_quat(quat_local).as_matrix()
+                    pos_local = np.array([x_next[px], x_next[py], x_next[pz]])
+                    quat_local = np.array([
+                        x_next[ox],
+                        x_next[oy],
+                        x_next[oz],
+                        x_next[ow],
+                    ])
+                    R_link = R.from_quat(quat_local).as_matrix()
 
-                pos_world = pos_root + R_root @ pos_local
-                R_world = R_root @ R_link
+                    pos_world = pos_root + R_root @ pos_local
+                    R_world = R_root @ R_link
 
-                rr.log(
-                    f"{ROBOT_NAME}/{f}",
-                    rr.Transform3D(translation=pos_world, mat3x3=R_world),
-                )
+                    rr.log(
+                        f"{ROBOT_NAME}/{f}",
+                        rr.Transform3D(translation=pos_world, mat3x3=R_world),
+                    )
+            else:
+                # Joint mode: interpret CVAE output as [root pose, joint angles]
+                # and use Pinocchio FK to compute all link transforms.
+                q = pin.neutral(robot_model)
+                # Free-flyer: [x, y, z, qx, qy, qz, qw]
+                q[0:3] = pos_root
+                q[3:7] = quat_root
+
+                # Fill joint angles in the same order as JointDataset.joint_names
+                joint_names = getattr(ds, "joint_names", [])
+                for i, jname in enumerate(joint_names):
+                    j_idx = name_to_idx[jname]
+                    q[7 + i] = x_next[j_idx]
+
+                pin.forwardKinematics(robot_model, robot_data, q)
+                pin.updateFramePlacements(robot_model, robot_data)
+
+                for f in FRAME_NAMES:
+                    if f not in link2mesh:
+                        continue
+                    frame_id = robot_model.getFrameId(f)
+                    if frame_id < 0 or frame_id >= len(robot_model.frames):
+                        continue
+                    oMf = robot_data.oMf[frame_id]
+                    pos_world = oMf.translation
+                    R_world = oMf.rotation
+
+                    rr.log(
+                        f"{ROBOT_NAME}/{f}",
+                        rr.Transform3D(translation=pos_world, mat3x3=R_world),
+                    )
 
             frame_idx += 1
 
@@ -323,6 +393,6 @@ def main():
         if HAS_PYGAME:
             pygame.quit()
 
+
 if __name__ == "__main__":
     main()
-

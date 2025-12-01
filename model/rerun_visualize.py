@@ -218,7 +218,7 @@ if __name__ == "__main__":
         spawn=True
     )
     rr.log('', rr.ViewCoordinates.RIGHT_HAND_Z_UP, static=True)
-    csv_files = f"./results/{args.file_name}.csv"
+    csv_files = f"./results_joint1/{args.file_name}.csv"
     data = np.genfromtxt(csv_files, delimiter=',')
     
     rerun_urdf = RerunJoint(args.robot_type) if data.shape[1] == 36 else RerunBody(args.robot_type)

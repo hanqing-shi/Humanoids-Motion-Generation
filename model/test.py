@@ -12,6 +12,7 @@ def parse_cli():
     parser.add_argument("--dataset", default='joint', help="joint or feature")
     parser.add_argument("--past-lenth", type=int, default=10)
 
+
     return parser.parse_args()
 
 def main(args):
@@ -61,7 +62,7 @@ def main(args):
     print(f"Loaded model: {args.model}")
 
     # best or last
-    ckpt = torch.load(f"checkpoints/{args.model}_best_hanqing.pt", map_location=device)
+    ckpt = torch.load(f"checkpoints/{args.model}_best.pt", map_location=device)
     model.load_state_dict(ckpt["model"])
     model.eval()
 
