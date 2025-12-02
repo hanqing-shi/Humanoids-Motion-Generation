@@ -4,7 +4,25 @@ import numpy as np
 import pinocchio as pin
 import os
 import glob
+import matplotlib.pyplot as plt
+from scipy.signal import butter, filtfilt
 
+def butter_lowpass_filtfilt(x, dt, cutoff_hz=3.0, order=3):
+    nyq = 0.5 / dt
+    Wn = cutoff_hz / nyq
+    b, a = butter(order, Wn, btype="low", analog=False)
+    return filtfilt(b, a, x, axis=0)
+
+def moving_average_filter(x, window_size=5):
+    """
+    Applies a simple moving average filter.
+    'mode="same"' ensures the output array has the same length as the input.
+    """
+    if window_size < 1:
+        return x
+    kernel = np.ones(window_size) / window_size
+    # "same" mode returns an array of the same size as x
+    return np.convolve(x, kernel, mode='same')
 
 def compute_dq(q_prev: np.ndarray, q_curr: np.ndarray, dt: float) -> np.ndarray:
     n_joints = len(q_curr) - 7
@@ -24,7 +42,7 @@ def compute_dq(q_prev: np.ndarray, q_curr: np.ndarray, dt: float) -> np.ndarray:
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument('--folder', type=str, default='./g1_clipped_retargeted_dataset/walk/', help="Input folder containing CSV files")
+    parser.add_argument('--folder', type=str, default='./data_joint/walk', help="Input folder containing CSV files")
     parser.add_argument('--feature_out_folder', type=str, default='./data_feature/walk', help="Output folder for processed files")
     parser.add_argument('--label_out_folder', type=str, default='./data_label/walk', help="Output folder for label files")
     parser.add_argument('--robot_type', type=str, default='g1', help="Robot type (URDF folder name)")
@@ -40,7 +58,7 @@ if __name__ == "__main__":
     os.makedirs(label_out_folder, exist_ok=True)
 
     robot = pin.RobotWrapper.BuildFromURDF(
-        f'./g1_clipped_retargeted_dataset/{robot_type}/{robot_type}_29dof_rev_1_0.urdf', f'./g1_clipped_retargeted_dataset/{robot_type}', pin.JointModelFreeFlyer()
+        f'./g1_retargeted_dataset/{robot_type}/{robot_type}_29dof_rev_1_0.urdf', f'./g1_retargeted_dataset/{robot_type}', pin.JointModelFreeFlyer()
     )
 
     frame_names = [visual.name[:-2] for visual in robot.visual_model.geometryObjects]
@@ -64,7 +82,7 @@ if __name__ == "__main__":
         file_name = os.path.splitext(os.path.basename(csv_path))[0]
         print(f"Processing {file_name} ...")
 
-        data = np.genfromtxt(csv_path, delimiter=',')
+        data = np.genfromtxt(csv_path, delimiter=',', skip_header=1)
         feature_data_out = []
         label_data_out = []
         prev_conf = data[0]
@@ -120,15 +138,69 @@ if __name__ == "__main__":
 
         feature_out_path = os.path.join(feature_out_folder, f"{file_name}_feature.csv")
         label_out_path = os.path.join(label_out_folder, f"{file_name}_label.csv")
-        with open(feature_out_path, 'w', newline='') as f:
-            writer = csv.writer(f)
-            writer.writerow(feature_header)
-            writer.writerows(feature_data_out)
+        # with open(feature_out_path, 'w', newline='') as f:
+        #     writer = csv.writer(f)
+        #     writer.writerow(feature_header)
+        #     writer.writerows(feature_data_out)
+
+
+        labels_np = np.array(label_data_out, dtype=float)
+        labels_filter = np.ones_like(labels_np)
+        # Adjust 'window_size' to control smoothing strength 
+        temp_x = moving_average_filter(labels_np[:,0], window_size=90)
+        temp_y = moving_average_filter(labels_np[:,1], window_size=90)
+        temp_z = moving_average_filter(labels_np[:,2], window_size=90)
+
+        labels_filter[:,0] = moving_average_filter(temp_x, window_size=30)
+        labels_filter[:,1] = moving_average_filter(temp_y, window_size=30)
+        labels_filter[:,2] = moving_average_filter(temp_z, window_size=30)
+        label_data_out = labels_filter.tolist()
 
         with open(label_out_path, 'w', newline='') as f:
             writer = csv.writer(f)
             writer.writerow(label_header)
             writer.writerows(label_data_out)
+
+        if False:
     
+            
+            T = labels_np.shape[0]
+            t = np.arange(T) * dt
+
+
+            # PLOTTING FRAMES HARDCODED, MAKE SURE WITHIN RANGE OF DATA IF RUNNING WITH PLOTS
+            # 1) linear_x vs time
+            plt.figure()
+            plt.plot(t[:1200], labels_np[:1200, 0], color='red')
+            plt.plot(t[:1200], labels_filter[:1200, 0])
+            plt.xlabel("Time (s)")
+            plt.ylabel("linear_x (m/s)")
+            plt.title(f"{file_name}: linear_x vs time")
+            plt.tight_layout()
+            plt.savefig(os.path.join(label_out_folder, f"{file_name}_linear_x_vs_time_filter5.png"))
+            plt.show()
+
+            # 2) linear_y vs time
+            plt.figure()
+            plt.plot(t[:1200], labels_np[:1200, 1], color='red')
+            plt.plot(t[:1200], labels_filter[:1200, 1])
+            plt.xlabel("Time (s)")
+            plt.ylabel("linear_y (m/s)")
+            plt.title(f"{file_name}: linear_y vs time")
+            plt.tight_layout()
+            plt.savefig(os.path.join(label_out_folder, f"{file_name}_linear_y_vs_time_filter5.png"))
+            plt.show()
+
+            # 3) angular_z vs time
+            plt.figure()
+            plt.plot(t[:1200], labels_np[:1200, 2], color='red')
+            plt.plot(t[:1200], labels_filter[:1200, 2])
+            plt.xlabel("Time (s)")
+            plt.ylabel("angular_z (rad/s)")
+            plt.title(f"{file_name}: angular_z vs time")
+            plt.tight_layout()
+            plt.savefig(os.path.join(label_out_folder, f"{file_name}_angular_z_vs_time_filter5.png"))
+            plt.show()
+            
         print(f"✅ Saved {feature_out_path} ({len(feature_data_out)} frames, {len(feature_header)} columns)")
         print(f"✅ Saved {label_out_path} ({len(label_data_out)} frames, {len(label_header)} columns)")
