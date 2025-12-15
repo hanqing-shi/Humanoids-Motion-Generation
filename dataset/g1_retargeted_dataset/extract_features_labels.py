@@ -49,8 +49,10 @@ if __name__ == "__main__":
     os.makedirs(label_out_folder, exist_ok=True)
 
     robot = pin.RobotWrapper.BuildFromURDF(
-        f'./g1_clipped_retargeted_dataset/{robot_type}/{robot_type}_29dof_rev_1_0.urdf', f'./g1_clipped_retargeted_dataset/{robot_type}', pin.JointModelFreeFlyer()
-    )
+    f'./dataset/g1_retargeted_dataset/{robot_type}/{robot_type}_29dof_rev_1_0.urdf',
+    f'./dataset/g1_retargeted_dataset/{robot_type}',
+    pin.JointModelFreeFlyer()
+)
 
     frame_names = [visual.name[:-2] for visual in robot.visual_model.geometryObjects]
     feature_header = ['root_x', 'root_y', 'root_z',

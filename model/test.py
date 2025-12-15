@@ -20,7 +20,7 @@ def main(args):
         val_dataset = MotionDataset(
             data_dir = './dataset/data_feature', 
             label_dir = './dataset/data_label', 
-            seq_len=30, 
+            seq_len=300, 
             motions = ['walk'],  # list of motion subfolders
             columns=("pos", "ori"),
             stride=30 - args.past_lenth if args.model == 'TrajCVAE' else 30,
