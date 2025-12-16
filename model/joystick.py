@@ -125,7 +125,7 @@ class JoystickController:
             
             elapsed = time.perf_counter() - loop_start
             sleep_time = max(0.0, dt - elapsed)
-            #time.sleep(sleep_time)
+            time.sleep(sleep_time) # uncomment for inference_rt.py
             
         # Stack into shape (steps, 3)
         return np.array(command_history, dtype=np.float32)
