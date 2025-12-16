@@ -86,10 +86,6 @@ def main(args):
                     configuration = samples[-1, step, :].detach().cpu().numpy()
                     rerun_urdf.update(configuration) 
                     time.sleep(0.03)  # 30Hz
-                # rr.set_time_sequence('frame_nr', frame)
-                # configuration = samples[-1, -1, :].detach().cpu().numpy()
-                # rerun_urdf.update(configuration)
-
 
                 # update past information
                 cond_past = torch.cat([cond_past, cond], dim=1)
@@ -101,8 +97,7 @@ def main(args):
                 x_start = new_state
 
                 traj_array.append(samples)  # (1, total_T, D_x)
-                #time.sleep(0.03)  # 30Hz
-
+                
             traj = torch.cat(traj_array, dim=1).squeeze(0)
             traj = traj.cpu().numpy()
             controller.close()

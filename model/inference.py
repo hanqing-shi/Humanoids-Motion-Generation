@@ -12,26 +12,10 @@ from joystick import JoystickController
 def parse_cli():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", default='TrajCVAE', help="Model class name in models.py")
-    #parser.add_argument("--label-csv", type=str, required=True, help="Path to the label CSV file")
-    #parser.add_argument("--traj-csv", type=str, required=True, help="Path to the trajectory CSV file")
     parser.add_argument("--past-lenth", type=int, default=10)
     parser.add_argument('--teacher-forcing-ratio', type=float, default=0)
     parser.add_argument("--seq-len", type=int, default=30)
     return parser.parse_args()
-
-def load_csv_to_tensor(file_path, device, nrows=None):
-    if file_path is None:
-        return None
-    
-    df = pd.read_csv(file_path, nrows=nrows) 
-    data_np = df.values
-    
-    data_tensor = torch.from_numpy(data_np).float().to(device)
-    
-    if data_tensor.ndim == 2:
-        data_tensor = data_tensor.unsqueeze(0) 
-        
-    return data_tensor
 
 def main(args):
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -57,9 +41,7 @@ def main(args):
     save_dir = "results"
     os.makedirs(save_dir, exist_ok=True)
     
-    #cond_future = load_csv_to_tensor(args.label_csv, device)
-    
-    #x_init = load_csv_to_tensor(args.traj_csv, device, nrows=args.past_lenth)
+    # initial configuration
     x_init = np.array([
     0.0, 0.0, 0.76,
     0.0, 0.0, 0.0, 1.0,
@@ -70,11 +52,7 @@ def main(args):
     0.2, -0.2, 0.0, 0.6, 0.0, 0.0, 0.0])
     x_init = torch.from_numpy(x_init).float().to(device).unsqueeze(0).unsqueeze(0)  # (1, 1, D_x)
 
-    
-    
-    #cond_past = torch.zeros((batch_size, args.past_lenth, cond_dim_size)).to(device)
-    
-    
+    # joystick controller
     controller = JoystickController(motion="walk", deadzone=0.1)
     cond = []
     for i in range(10): 
@@ -85,6 +63,7 @@ def main(args):
     cond_future = torch.from_numpy(cond).float().to(device)
     future_len = cond_future.shape[1]
     cond_dim_size = cond_future.shape[2]
+
     with torch.no_grad():
         if args.model == 'TrajCVAE':
             # initial context
@@ -96,9 +75,7 @@ def main(args):
             for start in range(0, future_len, seq_len):
                 end = start + seq_len
                 cond = cond_future[:,start:end, :] # (1, T, D_c)
-                #cond = torch.zeros_like(cond) # zero condition
-                #cond = controller.get_command()
-                #
+
                 samples = model.sample(cond_past, cond, x_past, x_start)
 
                 cond_past = cond[:, -args.past_lenth:, :]
