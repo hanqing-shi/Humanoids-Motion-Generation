@@ -59,13 +59,12 @@ class GRUDecoder(nn.Module):
 
         self.out = nn.Linear(hidden_dim, out_dim)
 
-    def forward(self, cond_seq, z, x_future, h_enc):
+    def forward(self, cond_seq, z, x0, x_future, h_enc):
         B, T_pred, _ = cond_seq.shape
         h0 = self.init_mlp(torch.cat([h_enc, z], dim=-1)).unsqueeze(0)
         outputs = []
-        x_prev = x_future[:,0,:]  # x0
-        outputs = [x_prev.unsqueeze(1)]
-        for t in range(T_pred-1):
+        x_prev = x0
+        for t in range(T_pred):
             cond_t = cond_seq[:, t, :]  # (B, D_c)
             dec_in = torch.cat([cond_t,x_prev], dim=-1).unsqueeze(1)  # (B,1,D_c+D_x)
             dec_out, h0 = self.gru(dec_in, h0)                         # (B,1,H)
@@ -191,18 +190,18 @@ class TrajCVAE(nn.Module):
         mu, logvar = self.to_mu(h_enc), self.to_logvar(h_enc)
         return mu, logvar, h_enc
 
-    def decode(self, cond_seq, z, x, h_enc):
-        return self.decoder(cond_seq, z, x, h_enc)
+    def decode(self, cond_seq, z, x0, x_future, h_enc):
+        return self.decoder(cond_seq, z, x0, x_future, h_enc)
 
     def forward(self, x, cond_seq):
         x_past = x[:, :self.past_lenth, :]
         x_future = x[:, self.past_lenth:, :]
         cond_past = cond_seq[:, :self.past_lenth, :]
         cond_future = cond_seq[:, self.past_lenth:, :]
-
+        x0 = x_past[:, -1, :]
         mu, logvar, h_enc = self.encode(x_past, cond_past)
         z = reparameterize(mu, logvar)
-        y_hat = self.decode(cond_future, z, x_future, h_enc)
+        y_hat = self.decode(cond_future, z, x0, x_future, h_enc)
         y_hat = torch.cat([x_past, y_hat], dim=1) # full trajectory
         return y_hat, mu, logvar
 
@@ -211,11 +210,11 @@ class TrajCVAE(nn.Module):
         B, T, _ = cond_future.shape
         device = cond_future.device
         z_dim = self.to_mu.out_features
-
+        x0 = x_past[:, -1, :]
         mu, logvar, h_enc = self.encode(x_past, cond_past)
         z = reparameterize(mu, logvar)
 
-        y_hat = self.decode(cond_future, z, x_future, h_enc)
+        y_hat = self.decode(cond_future, z, x0, x_future, h_enc)
 
         return y_hat.view(B, T, -1)
     
