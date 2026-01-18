@@ -12,15 +12,14 @@ def parse_cli():
     parser.add_argument("--dataset", default='joint', help="joint or feature")
     parser.add_argument("--past-lenth", type=int, default=10)
 
-
     return parser.parse_args()
 
 def main(args):
     if args.dataset == 'feature':
         val_dataset = MotionDataset(
-            data_dir = './dataset/data_feature', 
-            label_dir = './dataset/data_label', 
-            seq_len=300, 
+            data_dir = './dataset/data_test_feature', 
+            label_dir = './dataset/data_test_label', 
+            seq_len=30, 
             motions = ['walk'],  # list of motion subfolders
             columns=("pos", "ori"),
             stride=30 - args.past_lenth if args.model == 'TrajCVAE' else 30,
@@ -28,8 +27,8 @@ def main(args):
         )
     elif args.dataset == 'joint':
         val_dataset = JointDataset(
-            data_dir = './dataset/data_joint', 
-            label_dir = './dataset/data_label', 
+            data_dir = './dataset/data_test_joint', 
+            label_dir = './dataset/data_test_label', 
             seq_len=30, 
             motions = ['walk'],  # list of motion subfolders
             stride=30 - args.past_lenth if args.model == 'TrajCVAE' else 30,
