@@ -1,40 +1,53 @@
-import os, glob
+import os
+import glob
 import pandas as pd
 import numpy as np
 import torch
 from torch.utils.data import Dataset
 
-class MotionDataset(Dataset):
+class JointDataset(Dataset):
+    # same format as LAFAN1 retargeted dataset
+    DEFAULT_JOINT_NAMES = [
+        "left_hip_pitch_joint", "left_hip_roll_joint", "left_hip_yaw_joint", "left_knee_joint", 
+        "left_ankle_pitch_joint", "left_ankle_roll_joint", "right_hip_pitch_joint", "right_hip_roll_joint", 
+        "right_hip_yaw_joint", "right_knee_joint", "right_ankle_pitch_joint", "right_ankle_roll_joint", 
+        "waist_yaw_joint", "waist_roll_joint", "waist_pitch_joint", "left_shoulder_pitch_joint", 
+        "left_shoulder_roll_joint", "left_shoulder_yaw_joint", "left_elbow_joint", "left_wrist_roll_joint", 
+        "left_wrist_pitch_joint", "left_wrist_yaw_joint", "right_shoulder_pitch_joint", "right_shoulder_roll_joint", 
+        "right_shoulder_yaw_joint", "right_elbow_joint", "right_wrist_roll_joint", "right_wrist_pitch_joint", 
+        "right_wrist_yaw_joint"
+    ]
+
+    DEFAULT_ROOT_STATE = [
+        'vel_x', 'vel_y', 'root_z',
+        'root_qx', 'root_qy', 'root_qz', 'root_qw'
+    ]
+
     def __init__(self, 
                  data_dir, 
                  label_dir, 
-                 seq_len=300, 
-                 motions=['walk'],  # list of motion subfolders
-                 columns=("pos", "ori", "vel", "angvel"),
-                 stride=100,
-                 transform=None,
-                 normalize=True):
+                 seq_len, 
+                 motions, 
+                 stride,
+                 scaler=None):
         """
         Args:
-            data_dir (str): path to folder containing feature CSVs
-            label_dir (str): path to folder containing label CSVs
-            seq_len (int): sequence length per sample
-            motions (list[str]): list of motion subfolders
-            columns (tuple[str]): which feature groups to include, e.g. ("pos", "ori")
-            stride (int): step between consecutive sequences from the same file
-            transform (callable): optional preprocessing function
+            data_dir (str): Path to folder containing feature CSVs.
+            label_dir (str): Path to folder containing label CSVs.
+            seq_len (int): Sequence length per sample.
+            motions (list[str]): List of motion subfolders (e.g., ['walk', 'run']).
+            stride (int): Step size between consecutive sequences.
+            scaler (dict, optional): Dictionary containing 'min', 'max', 'range'. 
+                                     - For Training: Leave None to compute from data.
+                                     - For Inference/Validation: Must provide the training set's scaler.
         """
         self.data_dir = data_dir
         self.label_dir = label_dir
         self.seq_len = seq_len
-        self.columns = columns
         self.stride = stride
-        self.transform = transform
-        self.normalize = normalize
-
-        # --------------------------------------------------
-        # Collect all feature CSV files
-        # --------------------------------------------------
+        
+        # read csv files
+        self.selected_cols = self.DEFAULT_ROOT_STATE + self.DEFAULT_JOINT_NAMES
         self.input_files = []
         for motion in motions:
             motion_dir = os.path.join(data_dir, motion)
@@ -43,215 +56,95 @@ class MotionDataset(Dataset):
 
         if len(self.input_files) == 0:
             raise FileNotFoundError(f"No CSV input files found in {motions} under {data_dir}")
-
+        
         print(f"✅ Found {len(self.input_files)} CSV files from motions {motions}")
 
-        # --------------------------------------------------
-        # Define feature columns
-        # --------------------------------------------------
-        frame_names = ['pelvis', 'left_hip_pitch_link', 'left_hip_roll_link', 'left_hip_yaw_link', 'left_knee_link', 
-                       'left_ankle_pitch_link', 'left_ankle_roll_link', 'pelvis_contour_link', 'right_hip_pitch_link', 
-                       'right_hip_roll_link', 'right_hip_yaw_link', 'right_knee_link', 'right_ankle_pitch_link', 
-                       'right_ankle_roll_link', 'waist_yaw_link', 'waist_roll_link', 'torso_link', 'head_link', 
-                       'left_shoulder_pitch_link', 'left_shoulder_roll_link', 'left_shoulder_yaw_link', 
-                       'left_elbow_link', 'left_wrist_roll_link', 'left_wrist_pitch_link', 'left_wrist_yaw_link', 
-                       'left_rubber_hand', 'logo_link', 'right_shoulder_pitch_link', 'right_shoulder_roll_link', 
-                       'right_shoulder_yaw_link', 'right_elbow_link', 'right_wrist_roll_link', 'right_wrist_pitch_link', 
-                       'right_wrist_yaw_link', 'right_rubber_hand']
+        # get motion sequences with sliding window
+        self.samples = [] 
+        all_data_list = []
         
-        self.root_state = [
-            'root_x', 'root_y', 'root_z',
-            'root_qw', 'root_qx', 'root_qy', 'root_qz',
-            'root_vx', 'root_vy', 'root_vz',
-            'root_wx', 'root_wy', 'root_wz'
-        ]
-        
-        self.body_state = []
-        for f in frame_names:
-            self.body_state += [
-                f'{f}_pos_x', f'{f}_pos_y', f'{f}_pos_z',
-                f'{f}_ori_w', f'{f}_ori_x', f'{f}_ori_y', f'{f}_ori_z',
-                f'{f}_vel_x', f'{f}_vel_y', f'{f}_vel_z',
-                f'{f}_angvel_x', f'{f}_angvel_y', f'{f}_angvel_z'
-            ]
-        
-        self.col_dict = {
-            "pos":   ["pos_x", "pos_y", "pos_z"],
-            "ori":   ["ori_w", "ori_x", "ori_y", "ori_z"],
-            "vel":   ["vel_x", "vel_y", "vel_z"],
-            "angvel": ["angvel_x", "angvel_y", "angvel_z"],
+        for file_path in self.input_files:
+            df = pd.read_csv(file_path, usecols=self.selected_cols)
+            T = len(df)
+            
+            # compute global scaler stats if not provided
+            if scaler is None:
+                feat = df[self.selected_cols].values.astype(np.float32)
+                all_data_list.append(feat)
+
+            if T < seq_len:
+                continue
+            
+            # Create sliding window indices
+            starts = list(range(0, T - seq_len + 1, stride))
+            for s in starts:
+                self.samples.append((file_path, s))
+
+        # min-max normalization
+        if scaler is not None:
+            self.min = scaler['min'].cpu()
+            self.max = scaler['max'].cpu()
+            self.range = scaler['range'].cpu()
+        else:
+            if not all_data_list:
+                raise ValueError("No data loaded to compute scaler stats!")
+            
+            all_data = np.concatenate(all_data_list, axis=0)
+            self.min = torch.tensor(all_data.min(axis=0), dtype=torch.float32)
+            self.max = torch.tensor(all_data.max(axis=0), dtype=torch.float32)
+            
+            # Compute range and handle division by zero
+            self.range = self.max - self.min
+            self.range[self.range < 1e-4] = 1.0 
+
+        print(f"📊 Total {len(self.samples)} subsequences.")
+
+        # Avoid normalizing quaternion columns
+        self.norm_mask = torch.ones(len(self.selected_cols), dtype=torch.bool)
+        for i, col_name in enumerate(self.selected_cols):
+            if 'root_q' in col_name: 
+                self.norm_mask[i] = False
+
+    def get_scaler(self):
+        """
+        Returns the scaler statistics. 
+        """
+        return {
+            'min': self.min.clone().cpu(),
+            'max': self.max.clone().cpu(),
+            'range': self.range.clone().cpu()
         }
 
-        # filter columns by user-specified groups
-        self.selected_body_cols = [
-            name for name in self.body_state
-            if any(suffix in name for c in columns for suffix in self.col_dict[c])
-        ]
-        self.selected_cols = self.root_state + self.selected_body_cols
-
-        # --------------------------------------------------
-        # Preprocess: compute slicing points for each file
-        # --------------------------------------------------
-        self.samples = []  # [(file_path, start_idx)]
-        all_data = []   # ✅ 用来计算全局统计量
-        all_label = []
-        for file_path in self.input_files:
-            df = pd.read_csv(file_path)
-            T = len(df)
-            if T < seq_len:
-                continue  # skip too short
-            starts = list(range(0, T - seq_len + 1, stride))
-            for s in starts:
-                self.samples.append((file_path, s))
-            
-            # # 收集部分样本用于计算mean/std
-            # all_data.append(df[self.selected_cols].values.astype(np.float32))
-            # # label
-            # rel_path = os.path.relpath(file_path, self.data_dir)
-            # label_path = os.path.join(self.label_dir, rel_path.replace('_feature', '_label'))
-            # label_df = pd.read_csv(label_path)
-            # all_label.append(label_df.values.astype(np.float32))
-        
-        print(f"📊 Total {len(self.samples)} subsequences from {len(self.input_files)} files")
-
-    # --------------------------------------------------
     def __len__(self):
         return len(self.samples)
 
-    # --------------------------------------------------
     def __getitem__(self, idx):
         file_path, start = self.samples[idx]
 
-        # get matching label file (replace _feature -> _label)
-        rel_path = os.path.relpath(file_path, self.data_dir)
-        label_path = os.path.join(self.label_dir, rel_path.replace('_feature', '_label'))
-
-        # read data
-        data = pd.read_csv(file_path)[self.selected_cols].values.astype(np.float32)
-        label = pd.read_csv(label_path).values.astype(np.float32)
-
-        assert len(label) == len(data), f"Length mismatch: {file_path}"
-
-        # extract segment
-        data_seq = data[start : start + self.seq_len]
-        label_seq = label[start : start + self.seq_len]
-
-        data_seq = torch.tensor(data_seq, dtype=torch.float32)
-        label_seq = torch.tensor(label_seq, dtype=torch.float32)
-
-        if self.transform:
-            data_seq = self.transform(data_seq)
-
-        return data_seq, label_seq
-
-class JointDataset(Dataset):
-    def __init__(self, 
-                 data_dir, 
-                 label_dir, 
-                 seq_len=300, 
-                 motions=['walk'],  # list of motion subfolders
-                 stride=100,
-                 transform=None,
-                 normalize=True):
-        """
-        Args:
-            data_dir (str): path to folder containing feature CSVs
-            label_dir (str): path to folder containing label CSVs
-            seq_len (int): sequence length per sample
-            motions (list[str]): list of motion subfolders
-            stride (int): step between consecutive sequences from the same file
-            transform (callable): optional preprocessing function
-        """
-        self.data_dir = data_dir
-        self.label_dir = label_dir
-        self.seq_len = seq_len
-        self.stride = stride
-        self.transform = transform
-        self.normalize = normalize
-
-        # --------------------------------------------------
-        # Collect all feature CSV files
-        # --------------------------------------------------
-        self.input_files = []
-        for motion in motions:
-            motion_dir = os.path.join(data_dir, motion)
-            csvs = sorted(glob.glob(os.path.join(motion_dir, "*.csv")))
-            self.input_files.extend(csvs)
-
-        if len(self.input_files) == 0:
-            raise FileNotFoundError(f"No CSV input files found in {motions} under {data_dir}")
-
-        print(f"✅ Found {len(self.input_files)} CSV files from motions {motions}")
-
-        # --------------------------------------------------
-        # Define feature columns
-        # --------------------------------------------------
-        self.joint_names = ["left_hip_pitch_joint", "left_hip_roll_joint", "left_hip_yaw_joint", "left_knee_joint", "left_ankle_pitch_joint",
-            "left_ankle_roll_joint", "right_hip_pitch_joint", "right_hip_roll_joint", "right_hip_yaw_joint", "right_knee_joint",
-            "right_ankle_pitch_joint", "right_ankle_roll_joint", "waist_yaw_joint", "waist_roll_joint", "waist_pitch_joint",
-            "left_shoulder_pitch_joint", "left_shoulder_roll_joint", "left_shoulder_yaw_joint", "left_elbow_joint", "left_wrist_roll_joint",
-            "left_wrist_pitch_joint", "left_wrist_yaw_joint", "right_shoulder_pitch_joint", "right_shoulder_roll_joint", "right_shoulder_yaw_joint",
-            "right_elbow_joint", "right_wrist_roll_joint", "right_wrist_pitch_joint", "right_wrist_yaw_joint"
-            ]
-        
-        self.root_state = [
-            'root_x', 'root_y', 'root_z',
-            'root_qx', 'root_qy', 'root_qz', 'root_qw'
-        ]
-        
-        self.selected_cols = self.root_state + self.joint_names
-
-        # --------------------------------------------------
-        # Preprocess: compute slicing points for each file
-        # --------------------------------------------------
-        self.samples = []  # [(file_path, start_idx)]
-        for file_path in self.input_files:
-            df = pd.read_csv(file_path)
-            T = len(df)
-            if T < seq_len:
-                continue  # skip too short
-            starts = list(range(0, T - seq_len + 1, stride))
-            for s in starts:
-                self.samples.append((file_path, s))
-            
-            # # 收集部分样本用于计算mean/std
-            # all_data.append(df[self.selected_cols].values.astype(np.float32))
-            # # label
-            # rel_path = os.path.relpath(file_path, self.data_dir)
-            # label_path = os.path.join(self.label_dir, rel_path.replace('_feature', '_label'))
-            # label_df = pd.read_csv(label_path)
-            # all_label.append(label_df.values.astype(np.float32))
-        
-        print(f"📊 Total {len(self.samples)} subsequences from {len(self.input_files)} files")
-
-    # --------------------------------------------------
-    def __len__(self):
-        return len(self.samples)
-
-    # --------------------------------------------------
-    def __getitem__(self, idx):
-        file_path, start = self.samples[idx]
-
-        # get matching label file (replace _feature -> _label)
         rel_path = os.path.relpath(file_path, self.data_dir)
         stem, ext = os.path.splitext(rel_path)
-        label_rel = stem + "_label" + ext
+        
+        if '_feature' in stem:
+            label_rel = stem.replace('_feature', '_label') + ext
+        else:
+            label_rel = stem + "_label" + ext
+            
         label_path = os.path.join(self.label_dir, label_rel)
 
-        # read data
-        data = pd.read_csv(file_path)[self.selected_cols].values.astype(np.float32)
+        df_data = pd.read_csv(file_path, usecols=self.selected_cols) 
+        data = df_data[self.selected_cols].values.astype(np.float32)
         label = pd.read_csv(label_path).values.astype(np.float32)
 
-        assert len(label) == len(data), f"Length mismatch: {file_path}"
-
-        # extract segment
+        # sclicing
         data_seq = data[start : start + self.seq_len]
         label_seq = label[start : start + self.seq_len]
 
         data_seq = torch.tensor(data_seq, dtype=torch.float32)
         label_seq = torch.tensor(label_seq, dtype=torch.float32)
 
-        if self.transform:
-            data_seq = self.transform(data_seq)
+        mask = self.norm_mask
+        
+        # min-max normalization to [-1, 1]
+        data_seq[..., mask] = 2 * (data_seq[..., mask] - self.min[mask]) / self.range[mask] - 1
 
         return data_seq, label_seq
