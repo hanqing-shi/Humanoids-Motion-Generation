@@ -1,6 +1,8 @@
 import pygame
 import numpy as np
 import time
+import threading
+import collections
 
 class JoystickController:
     def __init__(self, motion: str = "walk", deadzone: float = 0.1):
@@ -14,6 +16,7 @@ class JoystickController:
         self.deadzone = deadzone
         self.motion_name = motion
 
+        # command scale factors, defined by 99% percentile of the training data.
         velocity_range = {
             "walk":  {"vx": 1.661, "vy": 0.592, "wz": 2.592},
             "run":   {"vx": 2.639, "vy": 1.309, "wz": 2.008},
@@ -125,43 +128,10 @@ class JoystickController:
             
             elapsed = time.perf_counter() - loop_start
             sleep_time = max(0.0, dt - elapsed)
-            time.sleep(sleep_time) # uncomment for inference_rt.py
+            #time.sleep(sleep_time) # uncomment for inference_rt.py
             
         # Stack into shape (steps, 3)
         return np.array(command_history, dtype=np.float32)
     
     def close(self):
         pygame.quit()
-
-
-# --- Unit Test ---
-
-if __name__ == "__main__":
-    try:
-        # Instantiate the controller
-        controller = JoystickController(motion="walk", deadzone=0.1)
-        
-        print("-" * 60)
-        print("Starting Loop... Press Ctrl+C to stop.")
-        
-        while True:
-            # Get command from the class
-            cmd = controller.get_command()
-            
-            vx, vy, wz = cmd
-            status = "🛑 STOP" if np.all(cmd == 0) else "🟢 MOVE"
-            
-            # Print status in a single line
-            print(f"\r{status} | "
-                  f"Vx: {vx:>+5.2f} | "
-                  f"Vy: {vy:>+5.2f} | "
-                  f"Wz: {wz:>+5.2f}    ", end="")
-            
-            time.sleep(0.05)
-
-    except KeyboardInterrupt:
-        print("\n👋 Exiting...")
-    finally:
-        # Cleanup
-        if 'controller' in locals():
-            controller.close()

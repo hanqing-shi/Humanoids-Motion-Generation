@@ -8,7 +8,7 @@ from scipy.spatial.transform import Rotation as R
 
 def parse_cli():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--file_name', type=str, help="File name", default='merged_sample_000_b2_n0')
+    parser.add_argument('--file_name', type=str, help="File name", default='0101_TrajCVAE_000_b31')
     parser.add_argument('--robot_type', type=str, help="Robot type", default='g1')
     return parser.parse_args()
 
@@ -132,7 +132,6 @@ class RerunBody():
                 )
             )
 
-
 class RerunJoint():
     def __init__(self, robot_type):
         self.name = robot_type
@@ -140,12 +139,21 @@ class RerunJoint():
             case 'g1':
                 self.robot = pin.RobotWrapper.BuildFromURDF('./dataset/g1_retargeted_dataset/g1/g1_29dof_rev_1_0.urdf', './dataset/g1_retargeted_dataset/g1', pin.JointModelFreeFlyer())
 
-                self.Tpose = np.array([0,0,0.785,0,0,0,1,
-                                       -0.15,0,0,0.3,-0.15,0,
-                                       -0.15,0,0,0.3,-0.15,0,
-                                       0,0,0,
-                                       0, 1.57,0,1.57,0,0,0,
-                                       0,-1.57,0,1.57,0,0,0]).astype(np.float32)
+                # self.Tpose = np.array([0,0,0.785,0,0,0,1,
+                #                        -0.15,0,0,0.3,-0.15,0,
+                #                        -0.15,0,0,0.3,-0.15,0,
+                #                        0,0,0,
+                #                        0, 1.57,0,1.57,0,0,0,
+                #                        0,-1.57,0,1.57,0,0,0]).astype(np.float32) # pose with arms up
+                
+                self.Tpose = np.array([
+                                0.0, 0.0, 0.76,
+                                0.0, 0.0, 0.0, 1.0,
+                                -0.312, 0.0, 0.0, 0.669, -0.363, 0.0,
+                                -0.312, 0.0, 0.0, 0.669, -0.363, 0.0,
+                                0.0, 0.0, 0.0,
+                                0.2, 0.2, 0.0, 0.6, 0.0, 0.0, 0.0,
+                                0.2, -0.2, 0.0, 0.6, 0.0, 0.0, 0.0]).astype(np.float32)
             case _:
                 print(robot_type)
                 raise ValueError('Invalid robot type')
@@ -169,13 +177,10 @@ class RerunJoint():
         for visual in self.robot.visual_model.geometryObjects:
             frame_name = visual.name[:-2]
             mesh = self.link2mesh[frame_name]
-            #print('frame_name:', frame_name)
             frame_id = self.robot.model.getFrameId(frame_name)
-            #print('frame_id:', frame_id)
             parent_joint_id = self.robot.model.frames[frame_id].parent
-            #print('parent_joint_id',parent_joint_id)
             parent_joint_name = self.robot.model.names[parent_joint_id]
-            #print(parent_joint_name)
+            
             frame_tf = self.robot.data.oMf[frame_id]
             joint_tf = self.robot.data.oMi[parent_joint_id]
             rr.log(f'urdf_{self.name}/{parent_joint_name}',
@@ -209,7 +214,6 @@ class RerunJoint():
                                   mat3x3=joint_tf.rotation,
                                   axis_length=0.01))
 
-
 if __name__ == "__main__":
     args = parse_cli()
 
@@ -226,6 +230,5 @@ if __name__ == "__main__":
     for frame_nr in range(data.shape[0]):
         rr.set_time_sequence('frame_nr', frame_nr)
         configuration = data[frame_nr, :]
-        #configuration[:3] = 0
         rerun_urdf.update(configuration)
         time.sleep(0.03)

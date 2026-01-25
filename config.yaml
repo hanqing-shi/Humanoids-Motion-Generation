@@ -1,0 +1,33 @@
+# config.yaml
+
+experiment_name: "walk_traj_cvae"
+save_dir: "checkpoints"
+
+dataset:
+  data_dir: "./dataset/data_feature"
+  label_dir: "./dataset/data_label"
+  motions: ["walk"]       # 可以改成 ["walk", "run"]
+  seq_len: 30
+  stride: 10
+  batch_size: 16
+  num_workers: 4
+
+model:
+  name: "TrajCVAE"        # 模型类名
+  teacher_forcing_ratio: 0.0
+  traj_dim: 36   # <--- 显式写死
+  cond_dim: 3    # <--- 显式写死
+  past_lenth: 10  # <--- 显式写死
+  # 其他模型特定参数可以在这里扩展
+
+train:
+  epochs: 100
+  lr: 0.001
+  save_freq: 50
+  resume: false
+
+inference:
+  motions: "walk"  # single motion for inference
+  step: 1000               # 推理总帧数
+  joystick_deadzone: 0.1   # 手柄死区
+  vis_freq: 30.0           # 可视化帧率
