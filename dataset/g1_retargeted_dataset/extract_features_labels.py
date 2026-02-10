@@ -7,7 +7,6 @@ import glob
 import matplotlib.pyplot as plt
 from scipy.signal import butter, filtfilt
 
-
 def compute_dq(q_prev: np.ndarray, q_curr: np.ndarray, dt: float) -> np.ndarray:
     n_joints = len(q_curr) - 7
     dq = np.zeros(6 + n_joints)
