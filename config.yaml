@@ -1,0 +1,33 @@
+# config.yaml
+
+experiment_name: "walk_traj_cvae"
+save_dir: "checkpoints"
+
+dataset:
+  data_dir: "./dataset/data_feature"
+  label_dir: "./dataset/data_label"
+  motions: ["walk"]
+  seq_len: 30
+  stride: 10
+  batch_size: 16
+  num_workers: 4
+
+model:
+  name: "TrajCVAE"
+  teacher_forcing_ratio: 0.0
+  traj_dim: 36
+  cond_dim: 3
+  past_lenth: 10
+
+
+train:
+  epochs: 100
+  lr: 0.001
+  save_freq: 50
+  resume: false
+
+inference:
+  motions: "walk"  # single motion for inference
+  step: 1000
+  joystick_deadzone: 0.1
+  vis_freq: 30.0
