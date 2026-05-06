@@ -82,10 +82,10 @@ Each folder under `data_*` is organized by motion type, such as `walk/` and `run
 
 ## References
 
-[2] A. Martinez, M. Black, and J. Romero, "On Human Motion Prediction Using Recurrent Neural Networks," in *Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (CVPR)*, 2017.
+[1] A. Martinez, M. Black, and J. Romero, "On Human Motion Prediction Using Recurrent Neural Networks," in *Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (CVPR)*, 2017.
 
-[4] H. Y. Ling, F. Zinno, G. Cheng, and M. Van de Panne, "Character Controllers Using Motion VAEs," *ACM Transactions on Graphics*, vol. 39, no. 4, Art. 40, Aug. 2020, 12 pages.
+[2] H. Y. Ling, F. Zinno, G. Cheng, and M. Van de Panne, "Character Controllers Using Motion VAEs," *ACM Transactions on Graphics*, vol. 39, no. 4, Art. 40, Aug. 2020, 12 pages.
 
-[8] Q. Liao et al., "BeyondMimic: From Motion Tracking to Versatile Humanoid Control via Guided Diffusion," 2024.
+[3] Q. Liao et al., "BeyondMimic: From Motion Tracking to Versatile Humanoid Control via Guided Diffusion," 2024.
 
-[10] J. Harvey et al., "LAFAN1: A High-Quality Motion Capture Dataset for Animation Research," 2020.
+[4] J. Harvey et al., "LAFAN1: A High-Quality Motion Capture Dataset for Animation Research," 2020.
