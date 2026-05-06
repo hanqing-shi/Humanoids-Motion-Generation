@@ -13,7 +13,7 @@ This project presents a two-stage pipeline for generating **natural, human-like*
 
 ## Stage 1: Motion Generation
 
-<video src="img/motion_gen_video.mp4" controls></video>
+![Motion generation demo](img/motion_gen_video.gif)
 
 This **autoregressive** generative model can predict robot trajectories with natural transitions conditioned on future joystick commands over a **long horizon**. The first stage serves as a **data engine** to obtain the robot's response to joystick command labels.
 - **Dataset**: Uses the **[LAFAN1 Retargeting Dataset](https://huggingface.co/datasets/lvhaidong/LAFAN1_Retargeting_Dataset)** for training. The data is specifically retargeted to the G1 humanoid's joint limits and link proportions.
