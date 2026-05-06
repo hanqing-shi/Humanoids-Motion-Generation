@@ -121,10 +121,9 @@ class GRUDecoder(nn.Module):
         return torch.cat(outputs, dim=1)
 
 
-class TrajCVAE(nn.Module):
+class KinematicARGenerator(nn.Module):
     """
-    Sequence-to-Sequence Trajectory Predictor.
-    (Name kept as TrajCVAE for compatibility, but strictly it is now a deterministic Seq2Seq)
+    Lightweight autoregressive kinematic trajectory generator.
     Structure:
         Encoder: [Past State, Past Cond] -> Hidden State
         Decoder: Hidden State + [Future Cond] -> Future State
@@ -208,6 +207,13 @@ class TrajCVAE(nn.Module):
         y_future = self.decoder(cond_future, h_enc, x0, x_future=None, teacher_forcing_ratio=0.0)
 
         return y_future
+
+
+class TrajCVAE(KinematicARGenerator):
+    """
+    Backward-compatible alias for the lightweight kinematic autoregressive model.
+    """
+    pass
        
 class AMDM(nn.Module):
     """

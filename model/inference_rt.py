@@ -26,7 +26,7 @@ def parse_cli():
     parser.add_argument("--config", default="config.yaml", help="Path to config file")
     return parser.parse_args()
 
-def inference_worker(conf, model, device, data_stats, norm_mask, x_init, rerun_urdf):
+def inference_worker(conf, model, device, data_stats, norm_mask, x_init, x_init_phys, rerun_urdf):
     """
     Worker thread handles heavy model inference and Rerun visualization.
     """
@@ -36,6 +36,7 @@ def inference_worker(conf, model, device, data_stats, norm_mask, x_init, rerun_u
     past_len = conf['model']['past_lenth']
     inference_steps = conf['inference']['step']
     vis_dt = 1.0 / conf['inference']['vis_freq']
+    quat_smoothing_alpha = conf['inference'].get('quat_smoothing_alpha', 0.5)
     
     # Initial Context
     cond_past = torch.zeros((1, past_len, 3)).to(device)
@@ -43,7 +44,16 @@ def inference_worker(conf, model, device, data_stats, norm_mask, x_init, rerun_u
     x_start = x_init[:, -1:, :]
     
     global_root_pos = np.array([0.0, 0.0])
-    traj_history = []
+    prev_quat = None
+
+    # Repeat the first frame 10 times.
+    # 1. Prepare a single-frame sample (shape: 1 x D).
+    init_traj_frame = x_init_phys.reshape(1, -1) 
+    init_cmd_frame = np.zeros((1, 3), dtype=np.float32)
+
+    # 2. Store 10 repeated copies so concatenation starts with 10 initial frames.
+    traj_history = [init_traj_frame for _ in range(10)]
+    cmd_history = [init_cmd_frame for _ in range(10)]
     
     print("🚀 Inference Thread Started...")
 
@@ -59,6 +69,9 @@ def inference_worker(conf, model, device, data_stats, norm_mask, x_init, rerun_u
                 
                 cmd_seq = np.array(command_buffer, dtype=np.float32) 
             
+            # Record the current command sequence (20, 3).
+            cmd_history.append(cmd_seq)
+
             # Run Inference
             cmd_tensor = torch.from_numpy(cmd_seq).float().to(device).unsqueeze(0)
             samples_norm = model.sample(cond_past, cmd_tensor, x_past, x_start)
@@ -73,14 +86,23 @@ def inference_worker(conf, model, device, data_stats, norm_mask, x_init, rerun_u
             # Visualization Loop
             for t in range(trajectory.shape[0]):
                 if not running: break
-                
+
                 local_vel = trajectory[t, :2]
                 quat_xyzw = trajectory[t, 3:7]
+
+                if prev_quat is not None:
+                    if np.dot(prev_quat, quat_xyzw) < 0:
+                        quat_xyzw = -quat_xyzw
+                    quat_xyzw = (1.0 - quat_smoothing_alpha) * prev_quat + quat_smoothing_alpha * quat_xyzw
+                    quat_xyzw /= np.linalg.norm(quat_xyzw)
+
+                trajectory[t, 3:7] = quat_xyzw
+                prev_quat = quat_xyzw.copy()
                 
                 rot = R.from_quat(quat_xyzw)
                 global_vel_3d = rot.apply(np.array([local_vel[0], local_vel[1], 0.0]))
                 global_root_pos += global_vel_3d[:2] * vis_dt
-                
+
                 trajectory[t, 0] = global_root_pos[0]
                 trajectory[t, 1] = global_root_pos[1]
                 
@@ -93,14 +115,23 @@ def inference_worker(conf, model, device, data_stats, norm_mask, x_init, rerun_u
             x_past = torch.cat([x_past, samples_norm], dim=1)[:, -past_len:, :]
             x_start = samples_norm[:, -1:, :]
             
+            # Record the current trajectory (20, 36).
             traj_history.append(trajectory)
 
     # Save Results
     if traj_history:
+        # 1. Save trajectory.
         full_traj = np.concatenate(traj_history, axis=0)
-        save_path = os.path.join(conf['save_dir'], f"{conf['model']['name']}_rt_result.csv")
-        np.savetxt(save_path, full_traj, delimiter=",")
-        print(f"✅ Saved to {save_path}")
+        traj_save_path = os.path.join(conf['save_dir'], f"{conf['model']['name']}_rt_result.csv")
+        np.savetxt(traj_save_path, full_traj, delimiter=",")
+        
+        # 2. Save commands.
+        full_cmd = np.concatenate(cmd_history, axis=0)
+        cmd_save_path = os.path.join(conf['save_dir'], f"{conf['model']['name']}_rt_command.csv")
+        np.savetxt(cmd_save_path, full_cmd, delimiter=",")
+        
+        print(f"✅ Saved Trajectory to {traj_save_path} (Shape: {full_traj.shape})")
+        print(f"✅ Saved Commands to {cmd_save_path} (Shape: {full_cmd.shape})")
     
     print("👋 Inference Thread Finished.")
     running = False 
@@ -149,12 +180,18 @@ def main(args):
     x_init = x_init_norm.unsqueeze(0).unsqueeze(0)
 
     # Init Rerun
-    rr.init('Reviz2', spawn=True)
+    rr.init('Rviz', spawn=True)
+    rr.send_blueprint(
+    rrb.Blueprint(
+        rrb.Spatial3DView(origin="/", name="3D View"),
+        collapse_panels=True,
+    )
+)
+
     rr.log('', rr.ViewCoordinates.RIGHT_HAND_Z_UP, static=True)
     rerun_urdf = RerunJoint('g1')
 
-    # Initialize Joystick (Main Thread Requirement)
-    # SDL/Pygame events must be handled on the main thread for macOS compatibility
+    # Initialize Joystick
     try:
         motion_name = conf['inference']['motions']
         controller = JoystickController(motion=motion_name, deadzone=conf['inference']['joystick_deadzone'])
@@ -170,12 +207,12 @@ def main(args):
     # Start Inference Worker Thread
     t = threading.Thread(
         target=inference_worker, 
-        args=(conf, model, device, (data_min, data_range), norm_mask, x_init, rerun_urdf),
+        args=(conf, model, device, (data_min, data_range), norm_mask, x_init, x_init_phys, rerun_urdf),
         daemon=True
     )
     t.start()
 
-    # Main Loop: Poll Joystick at 30Hz
+    # Main Loop: Polling Joystick
     print("🎮 Main Thread: Polling Joystick...")
     try:
         dt = 1.0 / 30.0

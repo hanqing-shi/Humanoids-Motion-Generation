@@ -18,7 +18,7 @@ class JoystickController:
 
         # command scale factors, defined by 99% percentile of the training data.
         velocity_range = {
-            "walk":  {"vx": 1.661, "vy": 0.592, "wz": 2.592},
+            "walk":  {"vx": 1.661, "vy": 0.592, "wz": 2.3},
             "run":   {"vx": 2.639, "vy": 1.309, "wz": 2.008},
             # add more modes as needed
         }

@@ -8,7 +8,7 @@ from scipy.spatial.transform import Rotation as R
 
 def parse_cli():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--file_name', type=str, help="File name", default='0101_TrajCVAE_000_b31')
+    parser.add_argument('--file_name', type=str, help="File name", default='0215_rt_result_2')
     parser.add_argument('--robot_type', type=str, help="Robot type", default='g1')
     return parser.parse_args()
 
