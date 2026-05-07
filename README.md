@@ -4,12 +4,26 @@ Keywords: Humanoid Locomotion, Motion Generation, Motion Tracking, Reinforcement
 
 ## Project Overview
 
-This project presents a two-stage pipeline for generating **natural, human-like** locomotion with **real-time joystick control** for the **Unitree G1 humanoid robot**. The pipeline bridges the gap between human motion capture (Mocap) data and dynamically feasible robot control.
+This project presents a two-stage pipeline for generating **natural, human-like** locomotion with **real-time joystick control** for the **Unitree G1 humanoid robot**. 
+
+Stage 1 proposed a command-conditioned **Motion Generation** model from human motion capture (**Mocap**) data, producing natural robot trajectories from future joystick commands. Stage 2 uses **RL-based Motion Tracking** to convert those generated trajectories into dynamically feasible motor control, while eliminating the artifact produced by previous stage. 
+
+The pipeline bridges the gap between Mocap data and dynamically feasible **real-time**, **joystick-based** control.
+
+<p align="center">
+  <img src="img/overview.png" alt="Project overview">
+  <br>
+  <em>Overview of the project pipeline.</em>
+</p>
 
 1. Command-conditioned offline **motion generation**
 2. RL-based **motion tracking** with joystick commands
 
-(Video) regular walking poliy vs ours
+<p align="center">
+  <img src="img/Proposed Method vs. Velocity Tracking RL.gif" alt="Proposed method compared with velocity tracking RL">
+  <br>
+  <em>Proposed RL policy compared with velocity-tracking policy in Mujoco.</em>
+</p>
 
 ## Stage 1: Motion Generation
 
@@ -35,7 +49,9 @@ $$S_{t:t+20} = f(S_{t-10:t}, V_{t:t+20})$$
 
 ## Stage 2: Motion Tracking
 
-We use 10-minute Stage 1-generated robot trajectories at 30 Hz, together with joystick command labels, as training data for the second stage.
+Kinematic trajectories alone are insufficient for real-robot deployment. To obtain **dynamically feasible** behavior under complex physical interactions, we use RL-based motion tracking to translate generated trajectories into executable motor control.
+
+We use 10-minute Stage 1-generated robot trajectories at 30 Hz, together with joystick command labels, as reference motion for the second stage.
 
 The second stage follows the **[BeyondMimic Motion Tracking](https://github.com/HybridRobotics/whole_body_tracking/tree/main)** framework with modified observations. The original observation is:
 
