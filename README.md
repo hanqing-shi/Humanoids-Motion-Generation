@@ -15,6 +15,8 @@ This project presents a two-stage pipeline for generating **natural, human-like*
 
 <p align="center">
   <img src="img/motion_gen_video.gif" alt="Motion generation demo">
+  <br>
+  <em>Motion generation: real-time joystick-conditioned trajectory prediction.</em>
 </p>
 
 This **autoregressive** generative model can predict robot trajectories with natural transitions conditioned on future joystick commands over a **long horizon**. The first stage serves as a **data engine** to obtain the robot's response to joystick command labels.
@@ -27,7 +29,7 @@ This **autoregressive** generative model can predict robot trajectories with nat
     - $V_t = [v_x, v_y, v_\omega]$
 - **Model Architecture**: A lightweight, kinematics-only, GRU (Gated Recurrent Unit)-based **sequence prediction** model that encodes past states and predicts future states conditioned on future joystick commands.
 
-  $$S_{t:t+20} = f(S_{t-10:t}, V_{t:t+20})$$
+$$S_{t:t+20} = f(S_{t-10:t}, V_{t:t+20})$$
 
 - **Real-Time Inference and Visualization**: Capable of processing joystick inputs instantly to generate responsive motion in real time with low latency. Integrated with the **[Rerun SDK](https://rerun.io/)** for real-time visualization of the robot's trajectory.
 
