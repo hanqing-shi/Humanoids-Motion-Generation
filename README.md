@@ -6,9 +6,9 @@ Keywords: Humanoid Locomotion, Motion Generation, Motion Tracking, Reinforcement
 
 This project presents a two-stage pipeline for generating **natural, human-like** locomotion with **real-time joystick control** for the **Unitree G1 humanoid robot**. 
 
-Stage 1 proposed a command-conditioned **Motion Generation** model from human motion capture (**Mocap**) data, producing natural robot trajectories from future joystick commands. Stage 2 uses **RL-based Motion Tracking** to convert those generated trajectories into dynamically feasible motor control, while eliminating the artifact produced by previous stage. 
+Stage 1 uses a command-conditioned **Motion Generation** model from human motion capture (**Mocap**) data, producing natural robot trajectories from future joystick commands. 
 
-The pipeline bridges the gap between Mocap data and dynamically feasible **real-time**, **joystick-based** control.
+Stage 2 uses **RL-based Motion Tracking** to convert those generated trajectories into dynamically feasible motor control, while eliminating the artifact produced by previous stage. 
 
 <p align="center">
   <img src="img/overview.png" alt="Project overview">
@@ -16,8 +16,8 @@ The pipeline bridges the gap between Mocap data and dynamically feasible **real-
   <em>Overview of the project pipeline.</em>
 </p>
 
-1. Command-conditioned offline **motion generation**
-2. RL-based **motion tracking** with joystick commands
+The pipeline bridges the gap between Mocap data and dynamically feasible **real-time**, **joystick-based** control.
+
 
 <p align="center">
   <img src="img/Proposed Method vs. Velocity Tracking RL.gif" alt="Proposed method compared with velocity tracking RL">
@@ -47,7 +47,7 @@ $$S_{t:t+20} = f(S_{t-10:t}, V_{t:t+20})$$
 
 - **Real-Time Inference and Visualization**: Capable of processing joystick inputs instantly to generate responsive motion in real time with low latency. Integrated with the **[Rerun SDK](https://rerun.io/)** for real-time visualization of the robot's trajectory.
 
-## Stage 2: Motion Tracking
+## Stage 2: Motion Tracking (Code Coming Soon)
 
 Kinematic trajectories alone are insufficient for real-robot deployment. To obtain **dynamically feasible** behavior under complex physical interactions, we use RL-based motion tracking to translate generated trajectories into executable motor control.
 
@@ -94,9 +94,43 @@ dataset/
 Each folder under `data_*` is organized by motion type, such as `walk/` and `run/`.
 
 1. Download the **[LAFAN1 Retargeting Dataset](https://huggingface.co/datasets/lvhaidong/LAFAN1_Retargeting_Dataset)** to `dataset/g1_retargeted_dataset/`.
-2. Clip the locomotion segments from `dataset/g1_retargeted_dataset/` into `dataset/data_joint/` under specific motion type.
+2. Manually clip locomotion segments from `dataset/g1_retargeted_dataset/` into `dataset/data_joint/` under the appropriate motion type subfolder (e.g., `walk/`, `run/`).
 3. Run `dataset/extract_features_labels.py` to extract the motion representation into `dataset/data_feature/` and the joystick command labels into `dataset/data_label/`.
 
+```bash
+python dataset/extract_features_labels.py
+```
+
+## Usage
+
+```bash
+git clone https://github.com/hanqing-shi/Humanoids-Motion-Generation.git
+cd Humanoids-Motion-Generation
+```
+
+Install [uv](https://docs.astral.sh/uv/):
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+All scripts are run from the repository root using `uv run`, which automatically installs dependencies on first use.
+
+### Training
+
+```bash
+uv run python model/train.py --config config.yaml
+```
+
+### Real-Time Inference
+
+Requires a connected joystick and the [Rerun SDK](https://rerun.io/) for visualization.
+
+```bash
+uv run python model/inference_rt.py --config config.yaml
+```
+
+The Rerun viewer will open automatically. Use the joystick to command the robot in real time.
 
 ## References
 
